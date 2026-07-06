@@ -1,0 +1,14 @@
+{
+  "name": "pam-vnc-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Portal web minimo + noVNC (VNC-only)",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@novnc/novnc": "^1.5.0"
+  }
+}

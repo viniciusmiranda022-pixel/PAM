@@ -15,6 +15,9 @@ networks:
   app_net:
   assets_net:
     internal: true
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
 
 volumes:
   pgdata:
@@ -47,7 +50,10 @@ services:
     restart: unless-stopped
     environment:
       VNC_PW: ${LAB_VNC_PASSWORD:-labonly1}
-    networks: [assets_net]
+    networks:
+      assets_net:
+        # IP fixo: o backend seeda o asset com este endereco (destino do banco).
+        ipv4_address: 172.28.0.10
 
   # ────────────────────────── Fase 1+ (profile: app) ──────────────────────────
 
@@ -57,6 +63,8 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-pam}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pam}
+      # Provider de credencial da Fase 1 (env:*). Fase 3 troca pelo Vault.
+      LAB_VNC_PASSWORD: ${LAB_VNC_PASSWORD:-labonly1}
     networks: [app_net, assets_net] # único serviço com pé nas duas redes
     depends_on:
       postgres:
@@ -68,6 +76,9 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-pam}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pam}
+      COOKIE_SECRET: ${COOKIE_SECRET:?defina COOKIE_SECRET no infra/.env}
+      GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-wss://localhost/gateway/vnc}
+      SECURE_COOKIE: ${SECURE_COOKIE:-true}
     networks: [app_net] # sem rota para assets_net, por design
     depends_on:
       postgres:

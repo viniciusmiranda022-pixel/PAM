@@ -16,25 +16,29 @@ segurança, fluxo de sessão, riscos, dependências, Docker Compose inicial.
 - [x] Modelo de dados descrito (pendente de aprovação)
 - [x] Docker Compose inicial com redes segregadas
 
-## Fase 1 — PoC técnica
+## Fase 1 — PoC técnica ✅ (ver [`phase1-poc.md`](phase1-poc.md))
 
 **Objetivo:** provar o fluxo seguro de ponta a ponta com o mínimo de telas:
 `portal → sessão → token → gateway WS → TCP VNC → asset de laboratório`.
 
 Entregáveis:
-- Gateway: upgrade WS, consumo de token (versão simplificada), TCP connect,
-  validação de banner RFB, terminação RFB (`None` lado browser, `VNCAuth` lado
-  asset com senha de variável de ambiente — cofre real vem na Fase 3).
-- Frontend mínimo: uma página com noVNC que recebe `gatewayUrl+token`.
-- Backend mínimo: endpoint de criação de sessão consultando asset seedado no banco.
-- Asset VNC de laboratório no Compose (rede isolada).
+- Gateway: upgrade WS, consumo atômico de token, TCP connect, validação de banner
+  RFB, terminação RFB (`None` lado browser, `VNCAuth` lado asset via provider de
+  credencial `env:*` — cofre real vem na Fase 3).
+- Frontend mínimo: página com noVNC que recebe `gatewayUrl+token`.
+- Backend mínimo: criação de sessão consultando asset seedado no banco.
+- Asset VNC de laboratório no Compose (rede isolada, IP fixo).
 
 Critérios de aceite:
-- [ ] Usuário abre a tela VNC no navegador
-- [ ] Gateway conecta no asset pela porta 5900 buscada do banco
-- [ ] Usuário não acessa o asset diretamente (rede isolada comprovada)
-- [ ] Senha do asset não trafega ao navegador (verificado no HAR)
-- [ ] Não existe suporte/biblioteca de RDP/SSH no lockfile
+- [x] Usuário abre a tela VNC no navegador (fluxo noVNC ↔ gateway provado no E2E)
+- [x] Gateway conecta no asset pela porta buscada do banco (HR-03)
+- [x] Usuário não acessa o asset diretamente (rede isolada comprovada)
+- [x] Senha do asset não trafega ao navegador (handshake `None`; confirmado no E2E)
+- [x] Não existe suporte/biblioteca de RDP/SSH no lockfile
+
+> Verificado com Postgres real + servidor RFB simulado (unit 16+6, integração 21,
+> E2E 14 — todos verdes). O ensaio com noVNC+TigerVNC reais requer um host com
+> `docker pull` liberado; passo a passo em [`deployment.md`](deployment.md).
 
 ## Fase 2 — MVP funcional
 

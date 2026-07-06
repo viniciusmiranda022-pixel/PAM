@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PAM VNC-Only</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>PAM VNC-Only <small>Privileged Access Gateway</small></h1>
+      <span id="who"></span>
+    </header>
+
+    <!-- Login -->
+    <section id="login-view">
+      <h2>Entrar</h2>
+      <form id="login-form">
+        <label>Usuário <input id="username" autocomplete="username" required /></label>
+        <label>Senha <input id="password" type="password" autocomplete="current-password" required /></label>
+        <button type="submit">Entrar</button>
+      </form>
+      <p class="error" id="login-error"></p>
+    </section>
+
+    <!-- Lista de assets autorizados. NAO ha campo de IP/host/porta (HR-01). -->
+    <section id="assets-view" hidden>
+      <h2>Ativos VNC autorizados</h2>
+      <ul id="assets-list"></ul>
+      <button id="logout">Sair</button>
+      <p class="error" id="assets-error"></p>
+    </section>
+
+    <!-- Sessao VNC -->
+    <section id="session-view" hidden>
+      <div class="session-bar">
+        <span id="session-status">conectando…</span>
+        <button id="end-session">Encerrar sessão</button>
+      </div>
+      <div id="screen"></div>
+    </section>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
