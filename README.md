@@ -70,25 +70,27 @@ pam/
 
 | Fase | Objetivo | Status |
 |------|----------|--------|
-| 0 | Desenho técnico (este pacote) | ✅ |
-| 1 | PoC: noVNC + gateway WS→TCP + asset de laboratório | pendente |
-| 2 | MVP: login, assets, permissões, sessões, logs básicos | pendente |
+| 0 | Desenho técnico | ✅ |
+| 1 | PoC: noVNC + gateway WS→TCP + asset de laboratório | ✅ ([`docs/phase1-poc.md`](docs/phase1-poc.md)) |
+| 2 | MVP: login, assets, permissões, sessões, logs básicos | parcial (login/sessão já na PoC) |
 | 3 | Segurança: token efêmero, allowlist, cofre, auditoria, TLS/WSS | pendente |
 | 4 | Operação: admin, sessões ativas, kill, health, métricas | pendente |
 | 5 | Avançado: MFA, SSO, gravação, aprovação (fora do MVP) | backlog |
 
 Plano detalhado com critérios de aceite: [`docs/delivery-plan.md`](docs/delivery-plan.md).
 
-## Subir o ambiente local (estado atual — Fase 0)
+## Subir o ambiente local (Fase 1)
 
 ```bash
 cd infra
-docker compose up -d          # sobe postgres (schema aplicado) + asset VNC de laboratório
+cp .env.example .env && ../scripts/gen-certs.sh
+docker compose --profile app up -d --build
+docker compose --profile app run --rm backend node dist/seed.js
 ```
 
-Os serviços de aplicação (`backend`, `gateway`, `frontend`) estão definidos sob o
-profile `app` e passam a funcionar a partir da Fase 1. Ver
-[`docs/deployment.md`](docs/deployment.md).
+Abra `https://localhost`, faça login com `poc` / `poc-pass` e inicie a sessão
+VNC no ativo `lab-vnc`. Passo a passo, isolamento de rede e testes:
+[`docs/deployment.md`](docs/deployment.md) · [`docs/phase1-poc.md`](docs/phase1-poc.md).
 
 ## Definition of Done
 

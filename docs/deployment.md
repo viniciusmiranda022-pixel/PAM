@@ -1,47 +1,71 @@
-# Deploy local (estado da Fase 0)
+# Deploy local
 
 ## Pré-requisitos
 
 - Docker + Docker Compose v2
+- Node 22 (apenas para rodar os testes fora do container)
 
-## Subir a infraestrutura
+## 1. Configurar ambiente
 
 ```bash
 cd infra
-cp .env.example .env        # ajuste senhas locais
-docker compose up -d
+cp .env.example .env        # ajuste POSTGRES_PASSWORD, COOKIE_SECRET, etc.
+../scripts/gen-certs.sh     # certificado TLS autoassinado para o Nginx (lab)
 ```
 
-O que sobe hoje (Fase 0):
+## 2. Subir a stack (Fase 1)
 
-| Serviço | Rede | Descrição |
-|---|---|---|
-| `postgres` | `app_net` | PostgreSQL 16 com o schema de `postgres/init/` aplicado no primeiro boot |
-| `lab-vnc` | `assets_net` (isolada) | Asset VNC de laboratório para as Fases 1–2 |
+```bash
+cd infra
+docker compose --profile app up -d --build
+```
+
+Sobe: `postgres` (schema aplicado no 1º boot), `lab-vnc` (asset em rede
+isolada, IP fixo 172.28.0.10), `backend`, `gateway`, `frontend` e `nginx`
+(porta 443).
+
+## 3. Semear o laboratório
+
+```bash
+cd infra
+docker compose --profile app run --rm backend node dist/seed.js
+```
+
+Cria o usuário `poc` (senha `poc-pass`, ajustável por `SEED_USER_PASSWORD`), o
+grupo `vnc-ops`, o asset `lab-vnc` (172.28.0.10:5901) e a permissão do grupo.
+
+## 4. Usar
+
+Abra `https://localhost` (aceite o certificado autoassinado), faça login com
+`poc` / `poc-pass`, clique no ativo `lab-vnc` e a sessão VNC abre no navegador.
+
+## Isolamento de rede (HR-07)
 
 A rede `assets_net` é `internal: true`: **nenhuma porta do asset é publicada no
-host** e somente containers dessa rede o alcançam. Isso modela, desde já, o
-requisito HR-07 (usuário sem rota direta ao asset) — para conectar no lab-vnc
-será obrigatório passar pelo gateway.
-
-Os serviços de aplicação (`backend`, `gateway`, `frontend`, `nginx`, `vault`)
-estão declarados sob o **profile `app`** e serão ativados conforme as fases:
+host** e só o `gateway` participa dela (o `backend` não tem rota). Para provar:
 
 ```bash
-docker compose --profile app up -d   # a partir da Fase 1
+cd infra
+# o backend NAO alcanca o asset:
+docker compose --profile app exec backend sh -c "nc -z -w2 172.28.0.10 5901; echo exit=$?"   # falha
+# o gateway alcanca:
+docker compose --profile app exec gateway sh -c "nc -z -w2 172.28.0.10 5901; echo exit=$?"    # ok
 ```
 
-## Verificações
+## Testes (rodam sem Docker)
 
 ```bash
-docker compose ps
-docker compose exec postgres psql -U pam -d pam -c '\dt'   # tabelas criadas
-docker compose exec postgres psql -U pam -d pam -c 'SELECT * FROM allowed_ports;'
+cd gateway && npm ci && npm test      # RFB/DES + handshakes (16)
+cd backend && npm ci && npm test      # validacao estrita HR-01/02 (6)
 ```
+
+Testes de integração e E2E que exercem o fluxo completo contra um Postgres real
+e um servidor RFB simulado estão descritos em
+[`phase1-poc.md`](phase1-poc.md#evidencia-de-verificacao).
 
 ## TLS
 
-- Local: certificado autoassinado gerado por `scripts/` (Fase 1).
+- Local: certificado autoassinado (`scripts/gen-certs.sh`).
 - Produção: ACME/Let's Encrypt ou PKI interna, terminado no Nginx. WSS obrigatório.
 
 ## Backup (Fase 4)
