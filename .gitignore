@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+coverage/
+*.log
+
+# segredos e ambiente local — nunca commitar
+.env
+.env.*
+!.env.example
+infra/nginx/certs/
+*.pem
+*.key
+*.crt
