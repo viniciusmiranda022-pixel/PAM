@@ -7,6 +7,9 @@ export interface UserRow {
   role: "user" | "admin";
   passwordHash: string;
   status: "active" | "inactive";
+  mfaEnabled: boolean;
+  /** Segredo TOTP cifrado (enc:v1) ou null. Nunca sai em resposta de API. */
+  mfaSecretEnc: string | null;
 }
 
 export interface AssetListItem {
@@ -23,40 +26,59 @@ export class Db {
     this.pool = new pg.Pool({ connectionString, max: 10 });
   }
 
+  private static mapUser(r: Record<string, unknown>): UserRow {
+    return {
+      id: r.id as string,
+      username: r.username as string,
+      displayName: r.display_name as string,
+      role: r.role as "user" | "admin",
+      passwordHash: r.password_hash as string,
+      status: r.status as "active" | "inactive",
+      mfaEnabled: Boolean(r.mfa_enabled),
+      mfaSecretEnc: (r.mfa_secret as string | null) ?? null,
+    };
+  }
+
   async findUserByUsername(username: string): Promise<UserRow | null> {
     const { rows } = await this.pool.query(
-      `SELECT id, username, display_name, role, password_hash, status
+      `SELECT id, username, display_name, role, password_hash, status,
+              mfa_enabled, mfa_secret
          FROM users WHERE username = $1`,
       [username],
     );
-    if (rows.length === 0) return null;
-    const r = rows[0];
-    return {
-      id: r.id,
-      username: r.username,
-      displayName: r.display_name,
-      role: r.role,
-      passwordHash: r.password_hash,
-      status: r.status,
-    };
+    return rows.length ? Db.mapUser(rows[0]) : null;
   }
 
   async findUserById(id: string): Promise<UserRow | null> {
     const { rows } = await this.pool.query(
-      `SELECT id, username, display_name, role, password_hash, status
+      `SELECT id, username, display_name, role, password_hash, status,
+              mfa_enabled, mfa_secret
          FROM users WHERE id = $1`,
       [id],
     );
-    if (rows.length === 0) return null;
-    const r = rows[0];
-    return {
-      id: r.id,
-      username: r.username,
-      displayName: r.display_name,
-      role: r.role,
-      passwordHash: r.password_hash,
-      status: r.status,
-    };
+    return rows.length ? Db.mapUser(rows[0]) : null;
+  }
+
+  /** Grava segredo TOTP cifrado (pendente de confirmacao) sem habilitar. */
+  async setMfaSecret(userId: string, encSecret: string): Promise<void> {
+    await this.pool.query(
+      "UPDATE users SET mfa_secret = $2, mfa_enabled = false, updated_at = now() WHERE id = $1",
+      [userId, encSecret],
+    );
+  }
+
+  async setMfaEnabled(userId: string, enabled: boolean): Promise<void> {
+    if (enabled) {
+      await this.pool.query(
+        "UPDATE users SET mfa_enabled = true, updated_at = now() WHERE id = $1 AND mfa_secret IS NOT NULL",
+        [userId],
+      );
+    } else {
+      await this.pool.query(
+        "UPDATE users SET mfa_enabled = false, mfa_secret = NULL, updated_at = now() WHERE id = $1",
+        [userId],
+      );
+    }
   }
 
   /** Assets ativos que o usuario pode ver (direto ou por grupo). Sem IP/porta. */
@@ -255,10 +277,10 @@ export class Db {
 
   async adminListUsers(): Promise<Array<Record<string, unknown>>> {
     const { rows } = await this.pool.query(
-      `SELECT id, username, display_name, email, role, status, created_at
+      `SELECT id, username, display_name, email, role, status, mfa_enabled, created_at
          FROM users ORDER BY username`,
     );
-    return rows; // nunca retorna password_hash
+    return rows; // nunca retorna password_hash nem mfa_secret
   }
 
   async adminCreateUser(p: {

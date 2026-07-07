@@ -53,7 +53,11 @@ async function loadUsers() {
     { label: "Nome", get: (u) => u.display_name },
     { label: "Perfil", get: (u) => u.role },
     { label: "Status", get: (u) => u.status },
-  ]);
+    { label: "MFA", get: (u) => (u.mfa_enabled ? "ativo" : "—") },
+  ], { name: "mfa-reset", label: "Resetar MFA", idKey: "id", run: async (id) => {
+    const r = await api(`/api/v1/admin/users/${id}`, { method: "PATCH", body: JSON.stringify({ mfaReset: true }) });
+    if (r.ok) loadUsers(); else err("falha ao resetar MFA");
+  }});
 }
 
 async function loadGroups() {

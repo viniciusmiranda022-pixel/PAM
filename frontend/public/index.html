@@ -18,6 +18,9 @@
       <form id="login-form">
         <label>Usuário <input id="username" autocomplete="username" required /></label>
         <label>Senha <input id="password" type="password" autocomplete="current-password" required /></label>
+        <label id="totp-label" hidden>Código do autenticador (MFA)
+          <input id="totp" inputmode="numeric" pattern="\d{6}" maxlength="6" autocomplete="one-time-code" placeholder="000000" />
+        </label>
         <button type="submit">Entrar</button>
       </form>
       <p class="error" id="login-error"></p>
@@ -29,6 +32,27 @@
       <ul id="assets-list"></ul>
       <button id="logout">Sair</button>
       <p class="error" id="assets-error"></p>
+
+      <details id="mfa-box">
+        <summary>Segurança da conta (MFA)</summary>
+        <div id="mfa-off">
+          <p class="muted">Proteja seu login com um código de autenticador (TOTP).</p>
+          <button id="mfa-setup">Ativar MFA</button>
+        </div>
+        <div id="mfa-pending" hidden>
+          <p>Cadastre no seu autenticador e confirme com o código:</p>
+          <p><code id="mfa-secret"></code></p>
+          <p class="muted" id="mfa-url" style="word-break: break-all"></p>
+          <input id="mfa-code" inputmode="numeric" maxlength="6" placeholder="000000" />
+          <button id="mfa-confirm">Confirmar</button>
+        </div>
+        <div id="mfa-on" hidden>
+          <p>MFA está <strong>ativo</strong>. Para desativar, informe um código válido:</p>
+          <input id="mfa-code-off" inputmode="numeric" maxlength="6" placeholder="000000" />
+          <button id="mfa-disable">Desativar MFA</button>
+        </div>
+        <p class="error" id="mfa-error"></p>
+      </details>
     </section>
 
     <!-- Sessao VNC -->

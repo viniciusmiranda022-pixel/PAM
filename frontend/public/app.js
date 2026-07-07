@@ -106,22 +106,69 @@ async function endSession() {
 $("login-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   $("login-error").textContent = "";
-  const res = await api("/api/v1/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ username: $("username").value, password: $("password").value }),
-  });
+  const body = { username: $("username").value, password: $("password").value };
+  const totp = $("totp").value.trim();
+  if (totp) body.totp = totp;
+  const res = await api("/api/v1/auth/login", { method: "POST", body: JSON.stringify(body) });
   if (res.status === 204) {
+    $("totp-label").hidden = true;
+    $("totp").value = "";
     const me = await (await api("/api/v1/auth/me")).json();
     setUser(me);
     await refreshAssets();
+    return;
+  }
+  const err = await res.json().catch(() => ({}));
+  if (err.error?.code === "MFA_REQUIRED") {
+    // Senha ok na primeira etapa: revela o campo TOTP e pede o código.
+    $("totp-label").hidden = false;
+    $("totp").focus();
+    $("login-error").textContent = "Informe o código do autenticador.";
   } else {
     $("login-error").textContent = "Credenciais inválidas.";
   }
 });
 
+// ── MFA (Fase 5.2) ─────────────────────────────────────────────────────────
+function renderMfa(enabled) {
+  $("mfa-off").hidden = enabled;
+  $("mfa-on").hidden = !enabled;
+  $("mfa-pending").hidden = true;
+  $("mfa-error").textContent = "";
+}
+
+$("mfa-setup").addEventListener("click", async () => {
+  const res = await api("/api/v1/auth/mfa/setup", { method: "POST" });
+  if (!res.ok) { $("mfa-error").textContent = "Falha ao iniciar o setup."; return; }
+  const { secret, otpauthUrl } = await res.json();
+  $("mfa-secret").textContent = secret;
+  $("mfa-url").textContent = otpauthUrl;
+  $("mfa-off").hidden = true;
+  $("mfa-pending").hidden = false;
+});
+
+$("mfa-confirm").addEventListener("click", async () => {
+  const res = await api("/api/v1/auth/mfa/enable", {
+    method: "POST",
+    body: JSON.stringify({ code: $("mfa-code").value.trim() }),
+  });
+  if (res.status === 204) renderMfa(true);
+  else $("mfa-error").textContent = "Código inválido — tente novamente.";
+});
+
+$("mfa-disable").addEventListener("click", async () => {
+  const res = await api("/api/v1/auth/mfa/disable", {
+    method: "POST",
+    body: JSON.stringify({ code: $("mfa-code-off").value.trim() }),
+  });
+  if (res.status === 204) renderMfa(false);
+  else $("mfa-error").textContent = "Código inválido — tente novamente.";
+});
+
 function setUser(me) {
   $("who").textContent = me.displayName ?? me.username;
   $("admin-link").hidden = me.role !== "admin";
+  renderMfa(Boolean(me.mfaEnabled));
 }
 
 $("logout").addEventListener("click", async () => {
