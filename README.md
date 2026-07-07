@@ -72,25 +72,28 @@ pam/
 |------|----------|--------|
 | 0 | Desenho técnico | ✅ |
 | 1 | PoC: noVNC + gateway WS→TCP + asset de laboratório | ✅ ([`docs/phase1-poc.md`](docs/phase1-poc.md)) |
-| 2 | MVP: login, assets, permissões, sessões, logs básicos | parcial (login/sessão já na PoC) |
-| 3 | Segurança: token efêmero, allowlist, cofre, auditoria, TLS/WSS | pendente |
+| 2 | MVP: login, assets, permissões, sessões, logs básicos | ✅ ([`docs/phase2-mvp.md`](docs/phase2-mvp.md)) |
+| 3 | Segurança: token efêmero, allowlist, cofre Vault, auditoria, TLS/WSS | parcial (cofre AES-GCM, denylist já na Fase 2) |
 | 4 | Operação: admin, sessões ativas, kill, health, métricas | pendente |
 | 5 | Avançado: MFA, SSO, gravação, aprovação (fora do MVP) | backlog |
 
 Plano detalhado com critérios de aceite: [`docs/delivery-plan.md`](docs/delivery-plan.md).
 
-## Subir o ambiente local (Fase 1)
+## Subir o ambiente local
 
 ```bash
 cd infra
 cp .env.example .env && ../scripts/gen-certs.sh
+# defina COOKIE_SECRET e CREDENTIAL_MASTER_KEY no .env (openssl rand -base64 32)
 docker compose --profile app up -d --build
 docker compose --profile app run --rm backend node dist/seed.js
 ```
 
-Abra `https://localhost`, faça login com `poc` / `poc-pass` e inicie a sessão
-VNC no ativo `lab-vnc`. Passo a passo, isolamento de rede e testes:
-[`docs/deployment.md`](docs/deployment.md) · [`docs/phase1-poc.md`](docs/phase1-poc.md).
+Abra `https://localhost`. Login `poc` / `poc-pass` inicia a sessão VNC no ativo
+`lab-vnc`; login `admin` / `admin-pass` dá acesso ao painel em `/admin` (cadastro
+de assets/usuários/permissões, sessões, auditoria). Passo a passo, isolamento de
+rede e testes: [`docs/deployment.md`](docs/deployment.md) ·
+[`docs/phase1-poc.md`](docs/phase1-poc.md) · [`docs/phase2-mvp.md`](docs/phase2-mvp.md).
 
 ## Definition of Done
 

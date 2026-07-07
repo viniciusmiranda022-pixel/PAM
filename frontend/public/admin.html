@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PAM VNC-Only — Administração</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>PAM VNC-Only <small>Administração</small></h1>
+      <span><a href="/" class="link">← Portal</a> <span id="who"></span></span>
+    </header>
+
+    <p id="gate" class="error" hidden>Acesso restrito a administradores. <a href="/">Voltar</a></p>
+
+    <nav id="tabs" class="tabs" hidden>
+      <button data-tab="assets" class="active">Ativos</button>
+      <button data-tab="users">Usuários</button>
+      <button data-tab="groups">Grupos</button>
+      <button data-tab="permissions">Permissões</button>
+      <button data-tab="ports">Portas</button>
+      <button data-tab="sessions">Sessões</button>
+      <button data-tab="audit">Auditoria</button>
+    </nav>
+
+    <main id="panels" hidden>
+      <section data-panel="assets">
+        <h2>Ativos VNC</h2>
+        <form data-form="asset" class="row">
+          <input name="name" placeholder="nome" required />
+          <input name="environment" placeholder="ambiente" value="production" />
+          <input name="ipAddress" placeholder="IP" required />
+          <input name="port" type="number" placeholder="porta" required />
+          <input name="vncPassword" type="password" placeholder="senha VNC" required />
+          <button>Criar</button>
+        </form>
+        <p class="muted">A senha é gravada cifrada e nunca mais retorna (write-only).</p>
+        <div class="table" data-list="assets"></div>
+      </section>
+
+      <section data-panel="users" hidden>
+        <h2>Usuários</h2>
+        <form data-form="user" class="row">
+          <input name="username" placeholder="usuário" required />
+          <input name="displayName" placeholder="nome" required />
+          <input name="password" type="password" placeholder="senha (min 8)" required />
+          <select name="role"><option value="user">user</option><option value="admin">admin</option></select>
+          <button>Criar</button>
+        </form>
+        <div class="table" data-list="users"></div>
+      </section>
+
+      <section data-panel="groups" hidden>
+        <h2>Grupos</h2>
+        <form data-form="group" class="row">
+          <input name="name" placeholder="nome do grupo" required />
+          <input name="description" placeholder="descrição" />
+          <button>Criar</button>
+        </form>
+        <div class="table" data-list="groups"></div>
+      </section>
+
+      <section data-panel="permissions" hidden>
+        <h2>Permissões</h2>
+        <form data-form="permission" class="row">
+          <select name="assetId" data-select="assets"></select>
+          <select name="principalType"><option value="user">usuário</option><option value="group">grupo</option></select>
+          <select name="principalId" data-select="principals"></select>
+          <button>Conceder</button>
+        </form>
+        <div class="table" data-list="permissions"></div>
+      </section>
+
+      <section data-panel="ports" hidden>
+        <h2>Allowlist de portas</h2>
+        <form data-form="port" class="row">
+          <input name="port" type="number" placeholder="porta (1024-65535)" required />
+          <input name="description" placeholder="descrição" required />
+          <button>Adicionar</button>
+        </form>
+        <p class="muted">Portas de outros protocolos (22, 3389, 443, …) são recusadas.</p>
+        <div class="table" data-list="ports"></div>
+      </section>
+
+      <section data-panel="sessions" hidden>
+        <h2>Sessões</h2>
+        <button data-refresh="sessions">Atualizar</button>
+        <div class="table" data-list="sessions"></div>
+      </section>
+
+      <section data-panel="audit" hidden>
+        <h2>Auditoria</h2>
+        <button data-refresh="audit">Atualizar</button>
+        <div class="table" data-list="audit"></div>
+      </section>
+    </main>
+
+    <p class="error" id="err"></p>
+    <script type="module" src="/admin.js"></script>
+  </body>
+</html>

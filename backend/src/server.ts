@@ -3,8 +3,28 @@ import cookie from "@fastify/cookie";
 import { randomBytes, createHash } from "node:crypto";
 import type { Config } from "./config.js";
 import type { Db, UserRow } from "./db.js";
-import { verifyPassword } from "./auth.js";
-import { createSessionSchema, loginSchema } from "./schemas.js";
+import { hashPassword, verifyPassword } from "./auth.js";
+import { encryptCredential } from "./credentials.js";
+import { portRejectionReason } from "./ports.js";
+import {
+  createAllowedPortSchema,
+  createAssetSchema,
+  createGroupSchema,
+  createPermissionSchema,
+  createSessionSchema,
+  createUserSchema,
+  loginSchema,
+  updateAssetSchema,
+  updateUserSchema,
+} from "./schemas.js";
+
+/** Mapeia erros do Postgres para respostas amigaveis. */
+function pgError(reply: FastifyReply, err: unknown): void {
+  const code = (err as { code?: string }).code;
+  if (code === "23505") return fail(reply, 409, "CONFLICT", "recurso ja existe");
+  if (code === "23503") return fail(reply, 422, "VALIDATION_FAILED", "referencia invalida (ex.: porta fora da allowlist)");
+  throw err;
+}
 
 const COOKIE_NAME = "pam_session";
 
@@ -176,6 +196,315 @@ export function buildServer(db: Db, config: Config) {
         details: { reason },
       });
       return reply.code(204).send();
+    },
+  );
+
+  // ─────────────────────────────── Admin ───────────────────────────────────
+
+  async function requireAdmin(req: FastifyRequest, reply: FastifyReply): Promise<UserRow | null> {
+    const user = await requireUser(req, reply);
+    if (!user) return null;
+    if (user.role !== "admin") {
+      fail(reply, 403, "NOT_AUTHORIZED", "requer perfil admin");
+      return null;
+    }
+    return user;
+  }
+
+  // Assets ----------------------------------------------------------------
+  app.get("/api/v1/admin/assets", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    return { items: await db.adminListAssets() };
+  });
+
+  app.post("/api/v1/admin/assets", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    const parsed = createAssetSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "INVALID_BODY", "payload invalido");
+    const a = parsed.data;
+    const denied = portRejectionReason(a.port);
+    if (denied) return fail(reply, 422, "VALIDATION_FAILED", denied);
+    if (!(await db.isPortAllowed(a.port))) {
+      return fail(reply, 422, "VALIDATION_FAILED", "porta nao esta na allowlist");
+    }
+    try {
+      // vncPassword e write-only: cifrada e guardada como credential_ref.
+      const credentialRef = encryptCredential(a.vncPassword);
+      const created = await db.adminCreateAsset({
+        name: a.name,
+        description: a.description ?? null,
+        environment: a.environment,
+        ipAddress: a.ipAddress,
+        port: a.port,
+        credentialRef,
+      });
+      await db.audit("asset.created", { userId: admin.id, assetId: created.id as string, sourceIp: clientIp(req) });
+      return reply.code(201).send(created); // sem credential_ref
+    } catch (err) {
+      return pgError(reply, err);
+    }
+  });
+
+  app.patch<{ Params: { id: string } }>("/api/v1/admin/assets/:id", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    const parsed = updateAssetSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "INVALID_BODY", "payload invalido");
+    const p = parsed.data;
+    if (p.port !== undefined) {
+      const denied = portRejectionReason(p.port);
+      if (denied) return fail(reply, 422, "VALIDATION_FAILED", denied);
+      if (!(await db.isPortAllowed(p.port))) {
+        return fail(reply, 422, "VALIDATION_FAILED", "porta nao esta na allowlist");
+      }
+    }
+    try {
+      const credentialRef = p.vncPassword !== undefined ? encryptCredential(p.vncPassword) : undefined;
+      const updated = await db.adminUpdateAsset(req.params.id, {
+        description: p.description,
+        environment: p.environment,
+        ipAddress: p.ipAddress,
+        port: p.port,
+        credentialRef,
+        status: p.status,
+      });
+      if (!updated) return fail(reply, 404, "NOT_FOUND", "asset inexistente");
+      await db.audit("asset.updated", {
+        userId: admin.id,
+        assetId: req.params.id,
+        sourceIp: clientIp(req),
+        details: { rotatedCredential: credentialRef !== undefined },
+      });
+      return updated;
+    } catch (err) {
+      return pgError(reply, err);
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/v1/admin/assets/:id", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    const result = await db.adminDeleteAsset(req.params.id);
+    if (result === "not_found") return fail(reply, 404, "NOT_FOUND", "asset inexistente");
+    await db.audit("asset.deleted", {
+      userId: admin.id,
+      assetId: req.params.id,
+      sourceIp: clientIp(req),
+      details: { mode: result },
+    });
+    return reply.code(204).send();
+  });
+
+  // Users -----------------------------------------------------------------
+  app.get("/api/v1/admin/users", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    return { items: await db.adminListUsers() };
+  });
+
+  app.post("/api/v1/admin/users", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    const parsed = createUserSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "INVALID_BODY", "payload invalido");
+    const u = parsed.data;
+    try {
+      const created = await db.adminCreateUser({
+        username: u.username,
+        displayName: u.displayName,
+        email: u.email ?? null,
+        passwordHash: hashPassword(u.password),
+        role: u.role,
+      });
+      await db.audit("user.created", { userId: admin.id, sourceIp: clientIp(req), details: { created: created.id } });
+      return reply.code(201).send(created);
+    } catch (err) {
+      return pgError(reply, err);
+    }
+  });
+
+  app.patch<{ Params: { id: string } }>("/api/v1/admin/users/:id", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    const parsed = updateUserSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "INVALID_BODY", "payload invalido");
+    const p = parsed.data;
+    try {
+      const updated = await db.adminUpdateUser(req.params.id, {
+        displayName: p.displayName,
+        email: p.email,
+        passwordHash: p.password !== undefined ? hashPassword(p.password) : undefined,
+        role: p.role,
+        status: p.status,
+      });
+      if (!updated) return fail(reply, 404, "NOT_FOUND", "usuario inexistente");
+      await db.audit("user.updated", { userId: admin.id, sourceIp: clientIp(req), details: { updated: req.params.id } });
+      return updated;
+    } catch (err) {
+      return pgError(reply, err);
+    }
+  });
+
+  // Groups ----------------------------------------------------------------
+  app.get("/api/v1/admin/groups", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    return { items: await db.adminListGroups() };
+  });
+
+  app.post("/api/v1/admin/groups", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    const parsed = createGroupSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "INVALID_BODY", "payload invalido");
+    try {
+      const created = await db.adminCreateGroup(parsed.data.name, parsed.data.description ?? null);
+      return reply.code(201).send(created);
+    } catch (err) {
+      return pgError(reply, err);
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/v1/admin/groups/:id", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    if (!(await db.adminDeleteGroup(req.params.id))) return fail(reply, 404, "NOT_FOUND", "grupo inexistente");
+    return reply.code(204).send();
+  });
+
+  app.put<{ Params: { groupId: string; userId: string } }>(
+    "/api/v1/admin/groups/:groupId/members/:userId",
+    async (req, reply) => {
+      const admin = await requireAdmin(req, reply);
+      if (!admin) return;
+      try {
+        await db.adminAddMember(req.params.groupId, req.params.userId);
+        return reply.code(204).send();
+      } catch (err) {
+        return pgError(reply, err);
+      }
+    },
+  );
+
+  app.delete<{ Params: { groupId: string; userId: string } }>(
+    "/api/v1/admin/groups/:groupId/members/:userId",
+    async (req, reply) => {
+      const admin = await requireAdmin(req, reply);
+      if (!admin) return;
+      await db.adminRemoveMember(req.params.groupId, req.params.userId);
+      return reply.code(204).send();
+    },
+  );
+
+  // Permissions -----------------------------------------------------------
+  app.get<{ Querystring: { assetId?: string } }>("/api/v1/admin/permissions", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    return { items: await db.adminListPermissions(req.query.assetId) };
+  });
+
+  app.post("/api/v1/admin/permissions", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    const parsed = createPermissionSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "INVALID_BODY", "informe assetId e exatamente um entre userId/groupId");
+    try {
+      const created = await db.adminCreatePermission({ ...parsed.data, grantedBy: admin.id });
+      await db.audit("permission.granted", {
+        userId: admin.id,
+        assetId: parsed.data.assetId,
+        sourceIp: clientIp(req),
+        details: { targetUser: parsed.data.userId ?? null, targetGroup: parsed.data.groupId ?? null },
+      });
+      return reply.code(201).send(created);
+    } catch (err) {
+      return pgError(reply, err);
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/v1/admin/permissions/:id", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    if (!(await db.adminDeletePermission(req.params.id))) return fail(reply, 404, "NOT_FOUND", "permissao inexistente");
+    await db.audit("permission.revoked", { userId: admin.id, sourceIp: clientIp(req), details: { permission: req.params.id } });
+    return reply.code(204).send();
+  });
+
+  // Allowed ports ---------------------------------------------------------
+  app.get("/api/v1/admin/allowed-ports", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    return { items: await db.listAllowedPorts() };
+  });
+
+  app.post("/api/v1/admin/allowed-ports", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    const parsed = createAllowedPortSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "INVALID_BODY", "payload invalido");
+    // Denylist imutavel: 22, 3389, 443, ... nunca entram na allowlist (HR-04).
+    const denied = portRejectionReason(parsed.data.port);
+    if (denied) return fail(reply, 422, "VALIDATION_FAILED", denied);
+    try {
+      await db.adminCreateAllowedPort(parsed.data.port, parsed.data.description);
+      await db.audit("allowlist.changed", {
+        userId: admin.id,
+        sourceIp: clientIp(req),
+        details: { action: "added", port: parsed.data.port },
+      });
+      return reply.code(201).send({ port: parsed.data.port });
+    } catch (err) {
+      return pgError(reply, err);
+    }
+  });
+
+  app.delete<{ Params: { port: string } }>("/api/v1/admin/allowed-ports/:port", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    const port = Number(req.params.port);
+    const result = await db.adminDeleteAllowedPort(port);
+    if (result === "in_use") return fail(reply, 409, "CONFLICT", "porta em uso por asset ativo");
+    if (result === "not_found") return fail(reply, 404, "NOT_FOUND", "porta inexistente");
+    await db.audit("allowlist.changed", { userId: admin.id, sourceIp: clientIp(req), details: { action: "removed", port } });
+    return reply.code(204).send();
+  });
+
+  // Sessions & auditoria --------------------------------------------------
+  app.get<{ Querystring: { status?: string; userId?: string; assetId?: string; limit?: string } }>(
+    "/api/v1/admin/sessions",
+    async (req, reply) => {
+      const admin = await requireAdmin(req, reply);
+      if (!admin) return;
+      const limit = Math.min(Math.max(Number(req.query.limit ?? 100), 1), 500);
+      return {
+        items: await db.adminListSessions({
+          status: req.query.status,
+          userId: req.query.userId,
+          assetId: req.query.assetId,
+          limit,
+        }),
+      };
+    },
+  );
+
+  app.get<{ Querystring: { eventType?: string; userId?: string; assetId?: string; page?: string } }>(
+    "/api/v1/admin/audit-logs",
+    async (req, reply) => {
+      const admin = await requireAdmin(req, reply);
+      if (!admin) return;
+      const limit = 100;
+      const page = Math.max(Number(req.query.page ?? 0), 0);
+      return {
+        items: await db.adminListAuditLogs({
+          eventType: req.query.eventType,
+          userId: req.query.userId,
+          assetId: req.query.assetId,
+          limit,
+          offset: page * limit,
+        }),
+      };
     },
   );
 

@@ -63,8 +63,10 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-pam}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pam}
-      # Provider de credencial da Fase 1 (env:*). Fase 3 troca pelo Vault.
+      # Providers de credencial: env:* (lab) e enc:v1 (cifra AES-GCM da Fase 2).
+      # A master key precisa ser IDENTICA no backend e no gateway. Fase 3: Vault.
       LAB_VNC_PASSWORD: ${LAB_VNC_PASSWORD:-labonly1}
+      CREDENTIAL_MASTER_KEY: ${CREDENTIAL_MASTER_KEY:?defina CREDENTIAL_MASTER_KEY no infra/.env}
     networks: [app_net, assets_net] # único serviço com pé nas duas redes
     depends_on:
       postgres:
@@ -79,6 +81,7 @@ services:
       COOKIE_SECRET: ${COOKIE_SECRET:?defina COOKIE_SECRET no infra/.env}
       GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-wss://localhost/gateway/vnc}
       SECURE_COOKIE: ${SECURE_COOKIE:-true}
+      CREDENTIAL_MASTER_KEY: ${CREDENTIAL_MASTER_KEY:?defina CREDENTIAL_MASTER_KEY no infra/.env}
     networks: [app_net] # sem rota para assets_net, por design
     depends_on:
       postgres:

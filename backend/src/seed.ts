@@ -26,6 +26,14 @@ async function main(): Promise<void> {
   );
   const userId = user.rows[0].id;
 
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? "admin-pass";
+  await pool.query(
+    `INSERT INTO users (username, display_name, password_hash, role)
+     VALUES ('admin', 'Administrador', $1, 'admin')
+     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, role = 'admin'`,
+    [hashPassword(adminPassword)],
+  );
+
   const group = await pool.query(
     `INSERT INTO groups (name, description) VALUES ('vnc-ops', 'Operadores VNC de laboratorio')
      ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description
@@ -59,7 +67,10 @@ async function main(): Promise<void> {
   console.log(
     JSON.stringify({
       msg: "seed concluido",
-      login: { username: "poc", password: userPassword },
+      logins: {
+        user: { username: "poc", password: userPassword },
+        admin: { username: "admin", password: adminPassword },
+      },
       asset: "lab-vnc",
     }),
   );
