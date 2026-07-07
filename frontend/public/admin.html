@@ -19,6 +19,7 @@
       <button data-tab="users">Usuários</button>
       <button data-tab="groups">Grupos</button>
       <button data-tab="permissions">Permissões</button>
+      <button data-tab="access">Acessos</button>
       <button data-tab="ports">Portas</button>
       <button data-tab="sessions">Sessões</button>
       <button data-tab="audit">Auditoria</button>
@@ -34,6 +35,8 @@
           <input name="port" type="number" placeholder="porta" required />
           <input name="vncPassword" type="password" placeholder="senha VNC" required />
           <label class="chk"><input type="checkbox" name="recordSessions" checked /> gravar sessão</label>
+          <label class="chk"><input type="checkbox" name="requestable" /> solicitável (catálogo)</label>
+          <label class="chk"><input type="checkbox" name="requireJustification" /> exigir justificativa</label>
           <button>Criar</button>
         </form>
         <p class="muted">A senha é gravada cifrada e nunca mais retorna (write-only). A gravação captura apenas a tela (não o teclado).</p>
@@ -71,6 +74,12 @@
           <button>Conceder</button>
         </form>
         <div class="table" data-list="permissions"></div>
+      </section>
+
+      <section data-panel="access" hidden>
+        <h2>Solicitações de acesso</h2>
+        <button data-refresh="access">Atualizar</button>
+        <div class="table" data-list="access"></div>
       </section>
 
       <section data-panel="ports" hidden>

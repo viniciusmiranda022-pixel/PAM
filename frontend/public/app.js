@@ -48,15 +48,21 @@ async function refreshAssets() {
     }
     list.append(li);
   }
+  await refreshCatalog();
   show("assets");
 }
 
-async function startSession(assetId) {
-  // A API recebe SOMENTE o assetId (HR-02).
-  const res = await api("/api/v1/sessions", {
-    method: "POST",
-    body: JSON.stringify({ assetId }),
-  });
+async function startSession(assetId, justification) {
+  // A API recebe assetId e, quando o asset exige, uma justificativa (HR-02).
+  const body = { assetId };
+  if (justification) body.justification = justification;
+  const res = await api("/api/v1/sessions", { method: "POST", body: JSON.stringify(body) });
+  if (res.status === 422 && !justification) {
+    // Asset exige justificativa: pede e tenta de novo.
+    const j = prompt("Este ativo exige uma justificativa de acesso:");
+    if (j && j.trim().length >= 3) return startSession(assetId, j.trim());
+    return;
+  }
   if (!res.ok) {
     $("assets-error").textContent = `Falha ao abrir sessão (${res.status}).`;
     return;
@@ -64,6 +70,41 @@ async function startSession(assetId) {
   const { sessionId, gatewayUrl, token } = await res.json();
   currentSessionId = sessionId;
   openVnc(gatewayUrl, token);
+}
+
+async function refreshCatalog() {
+  const [catalog, requests] = await Promise.all([
+    (await api("/api/v1/catalog")).json().then((d) => d.items ?? []).catch(() => []),
+    (await api("/api/v1/access-requests")).json().then((d) => d.items ?? []).catch(() => []),
+  ]);
+  const cat = $("catalog-list");
+  cat.innerHTML = catalog.length ? "" : "<li class='muted'>Nenhum ativo disponível para solicitação.</li>";
+  for (const a of catalog) {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.textContent = `Solicitar: ${a.name}`;
+    btn.onclick = () => requestAccess(a.id, a.name);
+    li.append(btn);
+    cat.append(li);
+  }
+  const rl = $("requests-list");
+  rl.innerHTML = requests.length ? "" : "<li class='muted'>Nenhuma solicitação.</li>";
+  for (const r of requests) {
+    const li = document.createElement("li");
+    li.textContent = `${r.asset_name} — ${r.status}`;
+    rl.append(li);
+  }
+}
+
+async function requestAccess(assetId, name) {
+  const justification = prompt(`Justificativa para solicitar acesso a "${name}":`);
+  if (!justification || justification.trim().length < 3) return;
+  const res = await api("/api/v1/access-requests", {
+    method: "POST",
+    body: JSON.stringify({ assetId, justification: justification.trim() }),
+  });
+  $("catalog-error").textContent = res.ok ? "" : `Falha ao solicitar (${res.status}).`;
+  await refreshCatalog();
 }
 
 function openVnc(gatewayUrl, token) {

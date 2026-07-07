@@ -82,6 +82,28 @@ async function loadPermissions() {
   updatePrincipals();
 }
 
+async function loadAccess() {
+  const items = await getJson("/api/v1/admin/access-requests");
+  const el = $('[data-list="access"]');
+  if (items.length === 0) { el.innerHTML = '<p class="muted">nenhuma solicitação</p>'; return; }
+  el.innerHTML = `<table><thead><tr><th>Usuário</th><th>Ativo</th><th>Justificativa</th><th>Status</th><th></th></tr></thead><tbody>${
+    items.map((r) => `<tr><td>${r.username}</td><td>${r.asset_name}</td><td>${r.justification}</td><td>${r.status}</td><td>${
+      r.status === "pending" ? `<button data-approve="${r.id}">Aprovar</button> <button data-deny="${r.id}">Negar</button>` : ""
+    }</td></tr>`).join("")
+  }</tbody></table>`;
+  $$("button[data-approve]", el).forEach((b) => (b.onclick = async () => {
+    const min = Number(prompt("Janela de acesso (minutos):", "60"));
+    if (!min || min < 1) return;
+    const res = await api(`/api/v1/admin/access-requests/${b.dataset.approve}/approve`, { method: "POST", body: JSON.stringify({ windowMinutes: min }) });
+    if (res.ok) loadAccess(); else err("falha ao aprovar");
+  }));
+  $$("button[data-deny]", el).forEach((b) => (b.onclick = async () => {
+    const note = prompt("Motivo (opcional):") ?? undefined;
+    const res = await api(`/api/v1/admin/access-requests/${b.dataset.deny}/deny`, { method: "POST", body: JSON.stringify(note ? { note } : {}) });
+    if (res.ok) loadAccess(); else err("falha ao negar");
+  }));
+}
+
 async function loadPorts() {
   const ports = await getJson("/api/v1/admin/allowed-ports");
   table($('[data-list="ports"]'), ports, [
@@ -131,7 +153,7 @@ function updatePrincipals() {
 
 async function refreshAll() {
   await Promise.all([loadAssets(), loadUsers(), loadGroups()]);
-  await Promise.all([loadPermissions(), loadPorts(), loadSessions(), loadAudit()]);
+  await Promise.all([loadPermissions(), loadAccess(), loadPorts(), loadSessions(), loadAudit()]);
 }
 
 // Formulários -----------------------------------------------------------
@@ -157,6 +179,8 @@ function wireForms() {
       port: Number(d.port),
       vncPassword: d.vncPassword,
       recordSessions: d.recordSessions === "on",
+      requestable: d.requestable === "on",
+      requireJustification: d.requireJustification === "on",
     })); };
   $('[data-form="user"]').onsubmit = (e) => { e.preventDefault();
     submit(e.target, "/api/v1/admin/users", (d) => d); };
@@ -169,7 +193,11 @@ function wireForms() {
     const body = d.principalType === "user" ? { assetId: d.assetId, userId: d.principalId } : { assetId: d.assetId, groupId: d.principalId };
     submit(e.target, "/api/v1/admin/permissions", () => body); };
   $('[name="principalType"]').onchange = updatePrincipals;
-  $$("[data-refresh]").forEach((b) => (b.onclick = () => (b.dataset.refresh === "sessions" ? loadSessions() : loadAudit())));
+  $$("[data-refresh]").forEach((b) => (b.onclick = () => {
+    if (b.dataset.refresh === "sessions") loadSessions();
+    else if (b.dataset.refresh === "audit") loadAudit();
+    else if (b.dataset.refresh === "access") loadAccess();
+  }));
 }
 
 // Abas ------------------------------------------------------------------
