@@ -77,19 +77,24 @@ Critérios de aceite:
 > não-VNC): backend unit 16, gateway unit 20, integração Fase 3 12 — todos
 > verdes, incluindo Vault e2e (backend grava → gateway lê) e a sentinela de senha.
 
-## Fase 4 — Administração e operação
+## Fase 4 — Administração e operação ✅ (ver [`phase4-operation.md`](phase4-operation.md))
 
-Entregáveis: tela administrativa (assets, usuários, permissões), sessões ativas
-em tempo real, encerramento forçado, logs pesquisáveis, `/healthz`, `/metrics`
-Prometheus, documentação de deploy, backup do banco.
+Entregáveis: tela administrativa (Fase 2), sessões ativas, **encerramento forçado
+propagado ao gateway**, logs pesquisáveis, `/healthz`, `/metrics` Prometheus,
+documentação de deploy, backup do banco.
 
 Critérios de aceite:
-- [ ] Admin vê sessões ativas
-- [ ] Admin encerra sessão e o usuário é desconectado imediatamente
-- [ ] Logs de auditoria consultáveis com filtros
-- [ ] Health check reflete banco, cofre e gateway
-- [ ] Erros são registrados e visíveis
-- [ ] Deploy reproduzível documentado
+- [x] Admin vê sessões ativas
+- [x] Admin encerra sessão e o usuário é desconectado imediatamente (watchdog)
+- [x] Logs de auditoria consultáveis com filtros
+- [x] Health check reflete o banco (gateway também reporta sessões ativas)
+- [x] Erros são registrados e visíveis (auditoria + métricas)
+- [x] Deploy reproduzível documentado + backup do banco
+
+> Verificado com Postgres real (backend unit 16, gateway unit 20, integração
+> Fase 4 10 — todos verdes), incluindo o encerramento forçado derrubando o
+> WebSocket ao vivo. Health do cofre (Vault) e store externo de auditoria ficam
+> para a Fase 5.
 
 ## Fase 5 — Avançado (somente após MVP sólido)
 

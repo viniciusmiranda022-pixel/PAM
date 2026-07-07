@@ -11,6 +11,8 @@ import { assetHandshake, browserHandshake, withTimeout } from "./handshake.js";
 import { RfbError } from "./rfb.js";
 import { resolveCredential } from "./config.js";
 import { Db, sha256 } from "./db.js";
+import { registerSession, unregisterSession } from "./registry.js";
+import { metrics } from "./metrics.js";
 
 // Codigos de close do WebSocket (docs/api-contract.md secao 4).
 const CLOSE = {
@@ -74,6 +76,8 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
   ): Promise<void> => {
     if (ended) return;
     ended = true;
+    unregisterSession(session.sessionId);
+    if (startedAt) metrics.sessionEnded(reason);
     try {
       socket?.destroy();
     } catch { /* ignore */ }
@@ -156,6 +160,12 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
     startedAt = Date.now();
     await db.markStarted(session.sessionId);
     await db.audit("session.started", { ...base });
+    metrics.sessionStarted();
+    // Registra p/ encerramento forcado ao vivo (watchdog): se o backend marcar
+    // esta sessao como terminada, o gateway derruba WS+TCP imediatamente.
+    registerSession(session.sessionId, (reason) =>
+      void end("terminated", reason, CLOSE.SESSION_INVALID),
+    );
 
     // Splice binario transparente. Flush de qualquer residual bufferizado.
     const assetResidual = assetStream.detach();

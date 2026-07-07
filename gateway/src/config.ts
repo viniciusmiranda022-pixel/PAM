@@ -4,6 +4,7 @@ export interface Config {
   port: number;
   databaseUrl: string;
   handshakeTimeoutMs: number;
+  watchdogIntervalMs: number;
 }
 
 export function loadConfig(env = process.env): Config {
@@ -13,6 +14,7 @@ export function loadConfig(env = process.env): Config {
     port: Number(env.GATEWAY_PORT ?? 8081),
     databaseUrl,
     handshakeTimeoutMs: Number(env.HANDSHAKE_TIMEOUT_MS ?? 10_000),
+    watchdogIntervalMs: Number(env.WATCHDOG_INTERVAL_MS ?? 5_000),
   };
 }
 

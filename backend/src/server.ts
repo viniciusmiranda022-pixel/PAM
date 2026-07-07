@@ -7,6 +7,7 @@ import { hashPassword, verifyPassword } from "./auth.js";
 import { storeCredential } from "./credential-store.js";
 import { portRejectionReason } from "./ports.js";
 import { RateLimiter } from "./rate-limit.js";
+import { metrics, registry } from "./metrics.js";
 import {
   createAllowedPortSchema,
   createAssetSchema,
@@ -96,11 +97,23 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
     return user;
   }
 
-  app.get("/healthz", async () => ({ status: "ok" }));
+  app.get("/healthz", async (_req, reply) => {
+    // Readiness: reflete o banco (do qual dependem auth e sessoes).
+    const dbOk = await db.ping();
+    reply.code(dbOk ? 200 : 503);
+    return { status: dbOk ? "ok" : "degraded", db: dbOk };
+  });
+
+  // Metricas Prometheus — rede interna apenas (sem auth; nao publicar no Nginx).
+  app.get("/metrics", async (_req, reply) => {
+    reply.header("content-type", registry.contentType);
+    return registry.metrics();
+  });
 
   app.post("/api/v1/auth/login", async (req, reply) => {
     const ip = clientIp(req) ?? "unknown";
     if (!loginLimiter.check(ip)) {
+      metrics.rateLimited("login");
       await db.audit("auth.rate_limited", { sourceIp: ip });
       return fail(reply, 429, "RATE_LIMITED", "muitas tentativas de login");
     }
@@ -110,9 +123,11 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
     const user = await db.findUserByUsername(username);
     const ok = user && user.status === "active" && verifyPassword(password, user.passwordHash);
     if (!ok || !user) {
+      metrics.login("fail");
       await db.audit("auth.login_failed", { sourceIp: clientIp(req), details: { username } });
       return fail(reply, 401, "NOT_AUTHENTICATED", "credenciais invalidas");
     }
+    metrics.login("ok");
     reply.setCookie(COOKIE_NAME, user.id, {
       httpOnly: true,
       sameSite: "strict",
@@ -153,6 +168,7 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
     if (!user) return;
 
     if (!sessionLimiter.check(user.id)) {
+      metrics.rateLimited("session");
       await db.audit("session.rate_limited", { userId: user.id, sourceIp: clientIp(req) });
       return fail(reply, 429, "RATE_LIMITED", "muitas sessoes em pouco tempo");
     }
@@ -189,6 +205,7 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
       clientIp: ip,
     });
     await db.audit("session.created", { userId: user.id, assetId, sessionId, sourceIp: ip });
+    metrics.sessionCreated();
 
     // A resposta nunca inclui host/porta/credencial.
     return reply.code(201).send({
