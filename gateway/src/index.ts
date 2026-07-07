@@ -3,14 +3,31 @@ import { WebSocketServer } from "ws";
 import { loadConfig } from "./config.js";
 import { Db } from "./db.js";
 import { runSession } from "./session.js";
+import { registry } from "./metrics.js";
+import { activeSessionCount } from "./registry.js";
+import { startTerminationWatchdog } from "./watchdog.js";
 
 const config = loadConfig();
 const db = new Db(config.databaseUrl);
 
 const server = http.createServer((req, res) => {
   if (req.url === "/healthz") {
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ status: "ok" }));
+    // Readiness: reflete o banco (do qual dependem token e watchdog).
+    db.ping().then((dbOk) => {
+      const status = dbOk ? "ok" : "degraded";
+      res.writeHead(dbOk ? 200 : 503, { "content-type": "application/json" });
+      res.end(JSON.stringify({ status, db: dbOk, activeSessions: activeSessionCount() }));
+    });
+    return;
+  }
+  if (req.url === "/metrics") {
+    registry
+      .metrics()
+      .then((body) => {
+        res.writeHead(200, { "content-type": registry.contentType });
+        res.end(body);
+      })
+      .catch(() => res.writeHead(500).end());
     return;
   }
   res.writeHead(404).end();
@@ -41,7 +58,10 @@ server.listen(config.port, () => {
   console.log(JSON.stringify({ msg: "gateway ouvindo", port: config.port }));
 });
 
+const watchdog = startTerminationWatchdog(db, config.watchdogIntervalMs);
+
 async function shutdown(): Promise<void> {
+  clearInterval(watchdog);
   wss.clients.forEach((c) => c.close(1001, "gateway_shutdown"));
   await new Promise<void>((r) => server.close(() => r()));
   await db.close();

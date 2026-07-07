@@ -114,6 +114,25 @@ export class Db {
     );
   }
 
+  /** IDs (dentre os informados) cujas sessoes nao estao mais 'active'. */
+  async findTerminatedAmong(ids: string[]): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const { rows } = await this.pool.query(
+      "SELECT id FROM sessions WHERE id = ANY($1::uuid[]) AND status <> 'active'",
+      [ids],
+    );
+    return rows.map((r) => r.id as string);
+  }
+
+  async ping(): Promise<boolean> {
+    try {
+      await this.pool.query("SELECT 1");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async close(): Promise<void> {
     await this.pool.end();
   }
