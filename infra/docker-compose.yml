@@ -74,6 +74,10 @@ services:
       VAULT_KV_MOUNT: ${VAULT_KV_MOUNT:-secret}
       # Gravacao de sessao (Fase 5.1). Vazio desliga a gravacao globalmente.
       RECORDINGS_DIR: /recordings
+      # VeNCrypt (Fase 5.4): TLS gateway->asset p/ assets com tls_required.
+      # Producao: VENCRYPT_CA_FILE. Lab: VENCRYPT_INSECURE=true (autoassinado).
+      VENCRYPT_INSECURE: ${VENCRYPT_INSECURE:-false}
+      VENCRYPT_CA_FILE: ${VENCRYPT_CA_FILE:-}
     volumes:
       - recordings:/recordings
     networks: [app_net, assets_net] # único serviço com pé nas duas redes

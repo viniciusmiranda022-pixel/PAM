@@ -431,6 +431,7 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
         recordSessions: a.recordSessions,
         requestable: a.requestable,
         requireJustification: a.requireJustification,
+        tlsRequired: a.tlsRequired,
       });
       await db.audit("asset.created", { userId: admin.id, assetId: created.id as string, sourceIp: clientIp(req) });
       return reply.code(201).send(created); // sem credential_ref
@@ -464,6 +465,7 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
         recordSessions: p.recordSessions,
         requestable: p.requestable,
         requireJustification: p.requireJustification,
+        tlsRequired: p.tlsRequired,
       });
       if (!updated) return fail(reply, 404, "NOT_FOUND", "asset inexistente");
       await db.audit("asset.updated", {

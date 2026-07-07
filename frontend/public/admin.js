@@ -181,6 +181,7 @@ function wireForms() {
       recordSessions: d.recordSessions === "on",
       requestable: d.requestable === "on",
       requireJustification: d.requireJustification === "on",
+      tlsRequired: d.tlsRequired === "on",
     })); };
   $('[data-form="user"]').onsubmit = (e) => { e.preventDefault();
     submit(e.target, "/api/v1/admin/users", (d) => d); };

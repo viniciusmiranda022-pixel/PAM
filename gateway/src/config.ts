@@ -1,4 +1,5 @@
 import { createDecipheriv } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 export interface Config {
   port: number;
@@ -16,6 +17,22 @@ export function loadConfig(env = process.env): Config {
     handshakeTimeoutMs: Number(env.HANDSHAKE_TIMEOUT_MS ?? 10_000),
     watchdogIntervalMs: Number(env.WATCHDOG_INTERVAL_MS ?? 5_000),
   };
+}
+
+/**
+ * Opcoes de TLS do cliente VeNCrypt (Fase 5.4). Producao: VENCRYPT_CA_FILE com
+ * a CA que assina os certificados dos assets. Lab: VENCRYPT_INSECURE=true aceita
+ * certificado autoassinado (a segmentacao de rede continua sendo o controle).
+ */
+export function tlsClientOptions(env = process.env): {
+  rejectUnauthorized: boolean;
+  ca?: Buffer;
+} {
+  const caFile = env.VENCRYPT_CA_FILE;
+  const insecure = env.VENCRYPT_INSECURE === "true";
+  let ca: Buffer | undefined;
+  if (caFile) ca = readFileSync(caFile);
+  return { rejectUnauthorized: !insecure, ca };
 }
 
 function masterKey(env: NodeJS.ProcessEnv): Buffer {

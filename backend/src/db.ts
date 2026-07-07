@@ -321,7 +321,8 @@ export class Db {
   async adminListAssets(): Promise<Array<Record<string, unknown>>> {
     const { rows } = await this.pool.query(
       `SELECT id, name, description, environment, host(ip_address) AS ip_address,
-              port, status, record_sessions, requestable, require_justification, created_at
+              port, status, record_sessions, requestable, require_justification,
+              tls_required, created_at
          FROM assets ORDER BY name`,
     );
     return rows;
@@ -337,15 +338,16 @@ export class Db {
     recordSessions: boolean;
     requestable: boolean;
     requireJustification: boolean;
+    tlsRequired: boolean;
   }): Promise<Record<string, unknown>> {
     const { rows } = await this.pool.query(
       `INSERT INTO assets (name, description, environment, ip_address, port, credential_ref,
-                           record_sessions, requestable, require_justification)
-       VALUES ($1, $2, $3, $4::inet, $5::int, $6, $7, $8, $9)
+                           record_sessions, requestable, require_justification, tls_required)
+       VALUES ($1, $2, $3, $4::inet, $5::int, $6, $7, $8, $9, $10)
        RETURNING id, name, description, environment, host(ip_address) AS ip_address, port, status,
-                 record_sessions, requestable, require_justification, created_at`,
+                 record_sessions, requestable, require_justification, tls_required, created_at`,
       [p.name, p.description, p.environment, p.ipAddress, p.port, p.credentialRef,
-       p.recordSessions, p.requestable, p.requireJustification],
+       p.recordSessions, p.requestable, p.requireJustification, p.tlsRequired],
     );
     return rows[0]; // nunca retorna credential_ref / senha
   }
@@ -362,6 +364,7 @@ export class Db {
       recordSessions?: boolean;
       requestable?: boolean;
       requireJustification?: boolean;
+      tlsRequired?: boolean;
     },
   ): Promise<Record<string, unknown> | null> {
     const { rows } = await this.pool.query(
@@ -375,10 +378,11 @@ export class Db {
           record_sessions      = COALESCE($8, record_sessions),
           requestable          = COALESCE($9, requestable),
           require_justification = COALESCE($10, require_justification),
+          tls_required          = COALESCE($11, tls_required),
           updated_at           = now()
         WHERE id = $1
         RETURNING id, name, description, environment, host(ip_address) AS ip_address, port, status,
-                  record_sessions, requestable, require_justification`,
+                  record_sessions, requestable, require_justification, tls_required`,
       [
         id,
         p.description ?? null,
@@ -390,6 +394,7 @@ export class Db {
         p.recordSessions ?? null,
         p.requestable ?? null,
         p.requireJustification ?? null,
+        p.tlsRequired ?? null,
       ],
     );
     return rows[0] ?? null;
