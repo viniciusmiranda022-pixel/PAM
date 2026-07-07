@@ -48,6 +48,7 @@ const server = http.createServer(async (req, res) => {
     return send(res, NOVNC, pathname.slice("/novnc/".length));
   }
   if (pathname === "/") pathname = "/index.html";
+  if (pathname === "/admin") pathname = "/admin.html";
   return send(res, PUBLIC, pathname.slice(1));
 });
 

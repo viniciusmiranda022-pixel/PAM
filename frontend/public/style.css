@@ -32,3 +32,15 @@ li { display: flex; align-items: center; gap: 0.5rem; }
   color: #eee; position: sticky; top: 0;
 }
 #screen { width: 100vw; height: calc(100vh - 44px); background: #000; }
+
+.link { color: #8ab4f8; text-decoration: none; }
+.tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; padding: 0.5rem 1rem; border-bottom: 1px solid #8883; }
+.tabs button { background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 0.35rem 0.7rem; }
+.tabs button.active { background: #1f2933; color: #fff; }
+main { padding: 1rem 1.25rem; }
+.row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+.row input, .row select { padding: 0.4rem 0.5rem; }
+.table { overflow-x: auto; }
+.table table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+.table th, .table td { text-align: left; padding: 0.35rem 0.6rem; border-bottom: 1px solid #8883; white-space: nowrap; }
+.table th { opacity: 0.7; font-weight: 600; }

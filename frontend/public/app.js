@@ -112,16 +112,22 @@ $("login-form").addEventListener("submit", async (ev) => {
   });
   if (res.status === 204) {
     const me = await (await api("/api/v1/auth/me")).json();
-    $("who").textContent = me.displayName ?? me.username;
+    setUser(me);
     await refreshAssets();
   } else {
     $("login-error").textContent = "Credenciais inválidas.";
   }
 });
 
+function setUser(me) {
+  $("who").textContent = me.displayName ?? me.username;
+  $("admin-link").hidden = me.role !== "admin";
+}
+
 $("logout").addEventListener("click", async () => {
   await api("/api/v1/auth/logout", { method: "POST" });
   $("who").textContent = "";
+  $("admin-link").hidden = true;
   show("login");
 });
 
@@ -131,8 +137,7 @@ $("end-session").addEventListener("click", endSession);
 (async () => {
   const res = await api("/api/v1/auth/me");
   if (res.ok) {
-    const me = await res.json();
-    $("who").textContent = me.displayName ?? me.username;
+    setUser(await res.json());
     await refreshAssets();
   } else {
     show("login");

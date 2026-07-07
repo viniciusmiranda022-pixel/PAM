@@ -40,18 +40,23 @@ Critérios de aceite:
 > E2E 14 — todos verdes). O ensaio com noVNC+TigerVNC reais requer um host com
 > `docker pull` liberado; passo a passo em [`deployment.md`](deployment.md).
 
-## Fase 2 — MVP funcional
+## Fase 2 — MVP funcional ✅ (ver [`phase2-mvp.md`](phase2-mvp.md))
 
-Entregáveis: login (Argon2id + cookie), CRUD de usuários, CRUD de assets VNC,
-grupos e permissões, criação/encerramento de sessão completos, logs básicos.
+Entregáveis: login + cookie (Fase 1), CRUD de usuários, CRUD de assets VNC,
+grupos e permissões, cofre de credenciais interino (AES-GCM), criação/encerramento
+de sessão, logs, UI administrativa.
 
 Critérios de aceite:
-- [ ] Usuário vê somente assets autorizados (direto e via grupo)
-- [ ] Asset inativo não aparece
-- [ ] Usuário inicia e encerra sessão VNC
-- [ ] Usuário não vê senha em nenhum ponto
-- [ ] Sessão é registrada em log com usuário, asset, IP, início, fim, status
-- [ ] Admin consegue listar sessões
+- [x] Usuário vê somente assets autorizados (direto e via grupo)
+- [x] Asset inativo não aparece
+- [x] Usuário inicia e encerra sessão VNC (admin também encerra)
+- [x] Usuário não vê senha em nenhum ponto (write-only + cofre cifrado)
+- [x] Sessão é registrada em log com usuário, asset, IP, início, fim, status
+- [x] Admin consegue listar sessões (e auditoria)
+
+> Verificado com Postgres real (backend unit 12, gateway unit 20, integração
+> admin 27 — todos verdes), incluindo o cofre AES-GCM fim-a-fim (backend cifra →
+> gateway decifra). Cadastro de assets/usuários/permissões via `/admin`.
 
 ## Fase 3 — Segurança
 
