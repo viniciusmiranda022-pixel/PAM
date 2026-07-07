@@ -78,7 +78,8 @@ pam/
 | 5.1 | Gravação de sessão + playback no navegador | ✅ ([`docs/phase5-recording.md`](docs/phase5-recording.md)) |
 | 5.2 | MFA (TOTP, RFC 6238) com reset por admin | ✅ ([`docs/phase5-mfa.md`](docs/phase5-mfa.md)) |
 | 5.3 | Acesso just-in-time (janela, catálogo, aprovação, justificativa) | ✅ ([`docs/phase5-jit.md`](docs/phase5-jit.md)) |
-| 5.x | Avançado: VeNCrypt, SSO/OIDC | backlog |
+| 5.4 | VeNCrypt: TLS no trecho gateway→asset (X509) | ✅ ([`docs/phase5-vencrypt.md`](docs/phase5-vencrypt.md)) |
+| 5.x | Avançado: SSO/OIDC | backlog |
 
 Plano detalhado com critérios de aceite: [`docs/delivery-plan.md`](docs/delivery-plan.md).
 

@@ -59,6 +59,7 @@ export const createAssetSchema = z
     recordSessions: z.boolean().default(true),
     requestable: z.boolean().default(false),
     requireJustification: z.boolean().default(false),
+    tlsRequired: z.boolean().default(false),
   })
   .strict();
 
@@ -73,6 +74,7 @@ export const updateAssetSchema = z
     recordSessions: z.boolean().optional(),
     requestable: z.boolean().optional(),
     requireJustification: z.boolean().optional(),
+    tlsRequired: z.boolean().optional(),
   })
   .strict();
 

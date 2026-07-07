@@ -6,10 +6,10 @@
 import net from "node:net";
 import { WebSocket } from "ws";
 import type { IncomingMessage } from "node:http";
-import { SocketByteStream, WsByteStream } from "./byte-stream.js";
-import { assetHandshake, browserHandshake, withTimeout } from "./handshake.js";
+import { WsByteStream } from "./byte-stream.js";
+import { assetHandshakeTls, browserHandshake, withTimeout } from "./handshake.js";
 import { RfbError } from "./rfb.js";
-import { resolveCredential } from "./config.js";
+import { resolveCredential, tlsClientOptions } from "./config.js";
 import { Db, sha256 } from "./db.js";
 import { registerSession, unregisterSession } from "./registry.js";
 import { metrics } from "./metrics.js";
@@ -68,7 +68,8 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
   const base = { userId: session.userId, assetId: session.assetId, sessionId: session.sessionId, sourceIp };
 
   // Estado de encerramento — garante teardown e auditoria uma unica vez.
-  let socket: net.Socket | null = null;
+  let socket: net.Socket | null = null; // TCP cru (base do TLS, se houver)
+  let assetSock: NodeJS.WritableStream & { destroyed?: boolean } | null = null; // efetivo (TLS ou cru)
   let ended = false;
   let startedAt = 0;
   let recorder: SessionRecorder | null = null;
@@ -83,7 +84,8 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
     recorder?.close();
     if (startedAt) metrics.sessionEnded(reason);
     try {
-      socket?.destroy();
+      (assetSock as unknown as net.Socket | null)?.destroy?.();
+      socket?.destroy(); // garante o TCP base fechado mesmo com TLS por cima
     } catch { /* ignore */ }
     if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
       ws.close(closeCode, reason.slice(0, 120));
@@ -130,18 +132,24 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
       return end("failed", "asset_connect_failed", CLOSE.ASSET_FAIL);
     }
 
-    const assetStream = new SocketByteStream(socket);
     let serverInit: Buffer;
+    let assetStream: import("./byte-stream-types.js").ByteStreamReader;
     try {
-      serverInit = await withTimeout(
-        assetHandshake(assetStream, (b) => socket!.write(b), password),
+      const hs = await withTimeout(
+        assetHandshakeTls(socket, password, session.tlsRequired, tlsClientOptions()),
         handshakeTimeoutMs,
         "asset-rfb",
       );
+      serverInit = hs.serverInit;
+      assetStream = hs.stream;
+      assetSock = hs.socket as unknown as typeof assetSock; // TLS quando VeNCrypt
+      if (session.tlsRequired) await db.audit("gateway.tls_established", { ...base });
     } catch (err) {
       const isAuth = err instanceof RfbError && /autentica/.test(err.message);
       const isBanner = err instanceof RfbError && /banner|RFB/.test(err.message);
+      const isTls = err instanceof RfbError && /VeNCrypt|tls_required/i.test(err.message);
       if (isBanner) await db.audit("gateway.banner_mismatch", { ...base });
+      else if (isTls) await db.audit("gateway.tls_required_failed", { ...base });
       else if (isAuth) await db.audit("gateway.vnc_auth_failed", { ...base });
       else await db.audit("gateway.asset_handshake_failed", { ...base });
       return end("failed", isAuth ? "vnc_auth_failed" : "asset_handshake_failed",
@@ -194,18 +202,20 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
       recorder?.write(assetResidual);
     }
     const wsResidual = wsStream.detach();
-    if (wsResidual.length) socket.write(wsResidual);
+    if (wsResidual.length) assetSock!.write(wsResidual);
 
-    socket.on("data", (d) => {
+    // Splice sobre o socket EFETIVO (o TLS quando houve VeNCrypt).
+    const effAsset = assetSock as unknown as net.Socket;
+    effAsset.on("data", (d: Buffer) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(d, { binary: true });
       recorder?.write(d);
     });
     ws.on("message", (d: Buffer, isBinary: boolean) => {
-      if (isBinary && socket && !socket.destroyed) socket.write(d);
+      if (isBinary && !effAsset.destroyed) effAsset.write(d);
     });
 
-    socket.on("close", () => void end("closed", "asset_disconnect", CLOSE.NORMAL));
-    socket.on("error", () => void end("failed", "asset_error", CLOSE.ASSET_FAIL));
+    effAsset.on("close", () => void end("closed", "asset_disconnect", CLOSE.NORMAL));
+    effAsset.on("error", () => void end("failed", "asset_error", CLOSE.ASSET_FAIL));
     ws.on("close", () => void end("closed", "client_disconnect", CLOSE.NORMAL));
     ws.on("error", () => void end("failed", "client_error", CLOSE.NORMAL));
   } catch (err) {

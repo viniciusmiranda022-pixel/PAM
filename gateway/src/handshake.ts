@@ -9,7 +9,10 @@
  * Depois que o ServerInit do asset e repassado ao browser, ambos os lados estao
  * na fase de mensagens normais e o chamador faz splice binario.
  */
+import type { Socket } from "node:net";
+import type { TLSSocket } from "node:tls";
 import type { ByteStreamReader } from "./byte-stream-types.js";
+import { SocketByteStream } from "./byte-stream.js";
 import {
   RFB_SECURITY,
   RfbError,
@@ -18,6 +21,7 @@ import {
   parseProtocolVersion,
   vncEncryptChallenge,
 } from "./rfb.js";
+import { RFB_SEC_VENCRYPT, veNCryptUpgrade, type TlsClientOptions } from "./vencrypt.js";
 
 type Send = (b: Buffer) => void;
 
@@ -94,10 +98,96 @@ export async function assetHandshake(
   }
 
   send(Buffer.from([1])); // ClientInit: shared = 1
+  return readServerInit(stream);
+}
+
+async function readServerInit(stream: ByteStreamReader): Promise<Buffer> {
   const head = await stream.read(24); // width(2) height(2) pixel-format(16) name-len(4)
   const nameLen = head.readUInt32BE(20);
   const name = nameLen > 0 ? await stream.read(nameLen) : Buffer.alloc(0);
-  return Buffer.concat([head, name]); // ServerInit completo
+  return Buffer.concat([head, name]);
+}
+
+export interface AssetHandshakeResult {
+  serverInit: Buffer;
+  /** Socket efetivo (o TLS quando houve VeNCrypt) — usar no splice. */
+  socket: Socket | TLSSocket;
+  /** Reader sobre o socket efetivo — dele sai o residual pro splice. */
+  stream: ByteStreamReader;
+}
+
+/**
+ * Variante de produção: opera sobre o socket para poder fazer o upgrade TLS do
+ * VeNCrypt. Quando `tlsRequired`, exige que o asset ofereça VeNCrypt (senão
+ * falha) e cifra o trecho gateway→asset; a autenticação VNC ocorre dentro do
+ * túnel TLS. Sem `tlsRequired`, comporta-se como o caminho RFB simples.
+ */
+export async function assetHandshakeTls(
+  socket: Socket,
+  password: string,
+  tlsRequired: boolean,
+  tlsOptions: TlsClientOptions,
+): Promise<AssetHandshakeResult> {
+  let effSocket: Socket | TLSSocket = socket;
+  let stream: ByteStreamReader = new SocketByteStream(socket);
+  const send: Send = (b) => void effSocket.write(b);
+
+  const server = parseProtocolVersion(await stream.read(12));
+  const neg = negotiatedVersion(server);
+  send(formatProtocolVersion(neg));
+
+  let security: number;
+
+  if (neg.minor < 7) {
+    if (tlsRequired) throw new RfbError("asset em RFB 3.3 nao suporta VeNCrypt/TLS");
+    security = (await stream.read(4)).readUInt32BE(0);
+    if (security === RFB_SECURITY.INVALID) {
+      throw new RfbError(`asset recusou conexao: ${await readReason(stream)}`);
+    }
+    if (security !== RFB_SECURITY.NONE && security !== RFB_SECURITY.VNC_AUTH) {
+      throw new RfbError("asset exige security type nao suportado");
+    }
+  } else {
+    const count = (await stream.read(1)).readUInt8(0);
+    if (count === 0) throw new RfbError(`asset recusou conexao: ${await readReason(stream)}`);
+    const list = await stream.read(count);
+    if (tlsRequired) {
+      if (!list.includes(RFB_SEC_VENCRYPT)) {
+        throw new RfbError("tls_required, mas o asset nao oferece VeNCrypt");
+      }
+      send(Buffer.from([RFB_SEC_VENCRYPT]));
+      const up = await veNCryptUpgrade(socket, stream, send, tlsOptions);
+      effSocket = up.socket;
+      stream = up.stream;
+      security = up.innerSecurity;
+    } else if (list.includes(RFB_SECURITY.VNC_AUTH)) {
+      security = RFB_SECURITY.VNC_AUTH;
+      send(Buffer.from([security]));
+    } else if (list.includes(RFB_SECURITY.NONE)) {
+      security = RFB_SECURITY.NONE;
+      send(Buffer.from([security]));
+    } else {
+      throw new RfbError("asset nao oferece security type suportado");
+    }
+  }
+
+  if (security === RFB_SECURITY.VNC_AUTH) {
+    const challenge = await stream.read(16);
+    send(vncEncryptChallenge(password, challenge)); // agora sobre o TLS, se houver
+  }
+
+  const expectResult = neg.minor >= 8 || security === RFB_SECURITY.VNC_AUTH;
+  if (expectResult) {
+    const result = (await stream.read(4)).readUInt32BE(0);
+    if (result !== 0) {
+      const reason = neg.minor >= 8 ? await readReason(stream) : "auth rejeitada";
+      throw new RfbError(`autenticacao VNC falhou: ${reason}`);
+    }
+  }
+
+  send(Buffer.from([1])); // ClientInit
+  const serverInit = await readServerInit(stream);
+  return { serverInit, socket: effSocket, stream };
 }
 
 /**

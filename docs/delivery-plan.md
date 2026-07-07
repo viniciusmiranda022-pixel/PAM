@@ -112,7 +112,11 @@ trecho gateway→asset.
 - **5.3 — Acesso just-in-time** ✅ (ver [`phase5-jit.md`](phase5-jit.md)): janela
   de validade nas permissões, catálogo opt-in (`requestable`), solicitação →
   aprovação com janela, justificativa obrigatória por asset. Verificado
-  (integração 17). Restantes: VeNCrypt, SSO/OIDC.
+  (integração 17).
+- **5.4 — VeNCrypt (TLS gateway→asset)** ✅ (ver [`phase5-vencrypt.md`](phase5-vencrypt.md)):
+  cifra o trecho gateway→asset com TLS (subtypes X509), autenticação VNC dentro
+  do túnel, flag `tls_required` por asset. Verificado (integração 10 com TLS real
+  do Node). Restante: SSO/OIDC.
 
 ## Épicos (backlog)
 
