@@ -5,6 +5,9 @@ export interface Config {
   gatewayPublicUrl: string;
   sessionTokenTtlSeconds: number;
   secureCookie: boolean;
+  rateLimitLoginPerMin: number;
+  rateLimitSessionPerMin: number;
+  credentialProvider: "enc" | "vault";
 }
 
 export function loadConfig(env = process.env): Config {
@@ -21,5 +24,8 @@ export function loadConfig(env = process.env): Config {
     gatewayPublicUrl: env.GATEWAY_PUBLIC_URL ?? "wss://localhost/gateway/vnc",
     sessionTokenTtlSeconds: Number(env.SESSION_TOKEN_TTL_SECONDS ?? 30),
     secureCookie: env.SECURE_COOKIE !== "false",
+    rateLimitLoginPerMin: Number(env.RATE_LIMIT_LOGIN_PER_MIN ?? 5),
+    rateLimitSessionPerMin: Number(env.RATE_LIMIT_SESSION_PER_MIN ?? 10),
+    credentialProvider: env.CREDENTIAL_PROVIDER === "vault" ? "vault" : "enc",
   };
 }

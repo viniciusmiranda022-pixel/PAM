@@ -99,7 +99,7 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
 
     let password: string;
     try {
-      password = resolveCredential(session.credentialRef);
+      password = await resolveCredential(session.credentialRef);
       await db.audit("credential.read", { ...base }); // sem valor do segredo (HR-06)
     } catch {
       await db.audit("credential.error", { ...base });
