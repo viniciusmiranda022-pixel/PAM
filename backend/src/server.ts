@@ -1,6 +1,7 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
 import { randomBytes, createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import type { Config } from "./config.js";
 import type { Db, UserRow } from "./db.js";
 import { hashPassword, verifyPassword } from "./auth.js";
@@ -279,6 +280,7 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
         ipAddress: a.ipAddress,
         port: a.port,
         credentialRef,
+        recordSessions: a.recordSessions,
       });
       await db.audit("asset.created", { userId: admin.id, assetId: created.id as string, sourceIp: clientIp(req) });
       return reply.code(201).send(created); // sem credential_ref
@@ -309,6 +311,7 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
         port: p.port,
         credentialRef,
         status: p.status,
+        recordSessions: p.recordSessions,
       });
       if (!updated) return fail(reply, 404, "NOT_FOUND", "asset inexistente");
       await db.audit("asset.updated", {
@@ -526,6 +529,30 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
           limit,
         }),
       };
+    },
+  );
+
+  // Gravacao da sessao (Fase 5.1) — admin-only; toda visualizacao e auditada.
+  app.get<{ Params: { sessionId: string } }>(
+    "/api/v1/admin/sessions/:sessionId/recording",
+    async (req, reply) => {
+      const admin = await requireAdmin(req, reply);
+      if (!admin) return;
+      const recordingPath = await db.getRecordingPath(req.params.sessionId);
+      if (!recordingPath) return fail(reply, 404, "NOT_FOUND", "sessao sem gravacao");
+      let stream: NodeJS.ReadableStream;
+      try {
+        stream = createReadStream(recordingPath);
+      } catch {
+        return fail(reply, 404, "NOT_FOUND", "arquivo de gravacao indisponivel");
+      }
+      await db.audit("recording.viewed", {
+        userId: admin.id,
+        sessionId: req.params.sessionId,
+        sourceIp: clientIp(req),
+      });
+      reply.header("content-type", "application/octet-stream");
+      return reply.send(stream);
     },
   );
 

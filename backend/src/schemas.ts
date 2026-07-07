@@ -31,6 +31,7 @@ export const createAssetSchema = z
     ipAddress: z.string().ip(),
     port: z.number().int(),
     vncPassword: z.string().min(1).max(1024), // write-only: vai ao cofre
+    recordSessions: z.boolean().default(true),
   })
   .strict();
 
@@ -42,6 +43,7 @@ export const updateAssetSchema = z
     port: z.number().int().optional(),
     vncPassword: z.string().min(1).max(1024).optional(), // rotacao
     status: status.optional(),
+    recordSessions: z.boolean().optional(),
   })
   .strict();
 

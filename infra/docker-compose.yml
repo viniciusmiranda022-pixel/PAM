@@ -21,6 +21,7 @@ networks:
 
 volumes:
   pgdata:
+  recordings:
 
 services:
   postgres:
@@ -71,6 +72,10 @@ services:
       VAULT_ADDR: ${VAULT_ADDR:-http://vault:8200}
       VAULT_TOKEN: ${VAULT_TOKEN:-root}
       VAULT_KV_MOUNT: ${VAULT_KV_MOUNT:-secret}
+      # Gravacao de sessao (Fase 5.1). Vazio desliga a gravacao globalmente.
+      RECORDINGS_DIR: /recordings
+    volumes:
+      - recordings:/recordings
     networks: [app_net, assets_net] # único serviço com pé nas duas redes
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:8081/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -98,6 +103,9 @@ services:
       VAULT_KV_MOUNT: ${VAULT_KV_MOUNT:-secret}
       RATE_LIMIT_LOGIN_PER_MIN: ${RATE_LIMIT_LOGIN_PER_MIN:-5}
       RATE_LIMIT_SESSION_PER_MIN: ${RATE_LIMIT_SESSION_PER_MIN:-10}
+    volumes:
+      # Somente leitura: o backend apenas serve as gravacoes ao admin.
+      - recordings:/recordings:ro
     networks: [app_net] # sem rota para assets_net, por design
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]

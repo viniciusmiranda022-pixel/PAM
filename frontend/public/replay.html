@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PAM VNC-Only — Playback</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>PAM VNC-Only <small>Playback de sessão</small></h1>
+      <span><a href="/admin" class="link">← Administração</a></span>
+    </header>
+    <div class="session-bar">
+      <span id="status">carregando…</span>
+      <label>Velocidade
+        <select id="speed">
+          <option value="1">1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+          <option value="8">8×</option>
+        </select>
+      </label>
+    </div>
+    <div id="screen"></div>
+    <script type="module" src="/replay.js"></script>
+  </body>
+</html>

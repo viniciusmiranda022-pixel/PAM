@@ -98,9 +98,14 @@ Critérios de aceite:
 
 ## Fase 5 — Avançado (somente após MVP sólido)
 
-MFA · SSO (OIDC/SAML) · aprovação de acesso · janela de acesso · justificativa
-obrigatória · gravação de sessão + playback · relatórios · alta disponibilidade ·
-VeNCrypt no trecho gateway→asset.
+Backlog: MFA · SSO (OIDC/SAML) · aprovação de acesso · janela de acesso ·
+justificativa obrigatória · relatórios · alta disponibilidade · VeNCrypt no
+trecho gateway→asset.
+
+- **5.1 — Gravação de sessão + playback** ✅ (ver [`phase5-recording.md`](phase5-recording.md)):
+  o gateway grava a tela (S→C; sem teclado, por privacidade/HR-06) em formato
+  `PAMREC01`; admin assiste no navegador via noVNC em replay. Flag por asset,
+  download admin-only e auditado. Verificado (unit 4 + integração 10).
 
 ## Épicos (backlog)
 

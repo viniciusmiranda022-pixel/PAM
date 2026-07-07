@@ -44,3 +44,4 @@ main { padding: 1rem 1.25rem; }
 .table table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
 .table th, .table td { text-align: left; padding: 0.35rem 0.6rem; border-bottom: 1px solid #8883; white-space: nowrap; }
 .table th { opacity: 0.7; font-weight: 600; }
+.chk { display: flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; }
