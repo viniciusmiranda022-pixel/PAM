@@ -75,7 +75,8 @@ pam/
 | 2 | MVP: login, assets, permissões, sessões, logs básicos | ✅ ([`docs/phase2-mvp.md`](docs/phase2-mvp.md)) |
 | 3 | Segurança: token efêmero, allowlist, cofre Vault, rate limit, auditoria, TLS/WSS | ✅ ([`docs/phase3-security.md`](docs/phase3-security.md)) |
 | 4 | Operação: admin, sessões ativas, kill ao vivo, health, métricas, backup | ✅ ([`docs/phase4-operation.md`](docs/phase4-operation.md)) |
-| 5 | Avançado: MFA, SSO, gravação, aprovação, VeNCrypt (fora do MVP) | backlog |
+| 5.1 | Gravação de sessão + playback no navegador | ✅ ([`docs/phase5-recording.md`](docs/phase5-recording.md)) |
+| 5.x | Avançado: MFA, SSO, aprovação, VeNCrypt | backlog |
 
 Plano detalhado com critérios de aceite: [`docs/delivery-plan.md`](docs/delivery-plan.md).
 

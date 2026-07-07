@@ -49,6 +49,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (pathname === "/") pathname = "/index.html";
   if (pathname === "/admin") pathname = "/admin.html";
+  if (pathname === "/replay") pathname = "/replay.html";
   return send(res, PUBLIC, pathname.slice(1));
 });
 

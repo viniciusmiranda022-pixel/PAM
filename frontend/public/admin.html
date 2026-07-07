@@ -33,9 +33,10 @@
           <input name="ipAddress" placeholder="IP" required />
           <input name="port" type="number" placeholder="porta" required />
           <input name="vncPassword" type="password" placeholder="senha VNC" required />
+          <label class="chk"><input type="checkbox" name="recordSessions" checked /> gravar sessão</label>
           <button>Criar</button>
         </form>
-        <p class="muted">A senha é gravada cifrada e nunca mais retorna (write-only).</p>
+        <p class="muted">A senha é gravada cifrada e nunca mais retorna (write-only). A gravação captura apenas a tela (não o teclado).</p>
         <div class="table" data-list="assets"></div>
       </section>
 

@@ -176,7 +176,7 @@ export class Db {
   async adminListAssets(): Promise<Array<Record<string, unknown>>> {
     const { rows } = await this.pool.query(
       `SELECT id, name, description, environment, host(ip_address) AS ip_address,
-              port, status, created_at
+              port, status, record_sessions, created_at
          FROM assets ORDER BY name`,
     );
     return rows;
@@ -189,12 +189,13 @@ export class Db {
     ipAddress: string;
     port: number;
     credentialRef: string;
+    recordSessions: boolean;
   }): Promise<Record<string, unknown>> {
     const { rows } = await this.pool.query(
-      `INSERT INTO assets (name, description, environment, ip_address, port, credential_ref)
-       VALUES ($1, $2, $3, $4::inet, $5::int, $6)
-       RETURNING id, name, description, environment, host(ip_address) AS ip_address, port, status, created_at`,
-      [p.name, p.description, p.environment, p.ipAddress, p.port, p.credentialRef],
+      `INSERT INTO assets (name, description, environment, ip_address, port, credential_ref, record_sessions)
+       VALUES ($1, $2, $3, $4::inet, $5::int, $6, $7)
+       RETURNING id, name, description, environment, host(ip_address) AS ip_address, port, status, record_sessions, created_at`,
+      [p.name, p.description, p.environment, p.ipAddress, p.port, p.credentialRef, p.recordSessions],
     );
     return rows[0]; // nunca retorna credential_ref / senha
   }
@@ -208,19 +209,21 @@ export class Db {
       port?: number;
       credentialRef?: string;
       status?: "active" | "inactive";
+      recordSessions?: boolean;
     },
   ): Promise<Record<string, unknown> | null> {
     const { rows } = await this.pool.query(
       `UPDATE assets SET
-          description    = COALESCE($2, description),
-          environment    = COALESCE($3, environment),
-          ip_address     = COALESCE($4::inet, ip_address),
-          port           = COALESCE($5::int, port),
-          credential_ref = COALESCE($6, credential_ref),
-          status         = COALESCE($7::entity_status, status),
-          updated_at     = now()
+          description     = COALESCE($2, description),
+          environment     = COALESCE($3, environment),
+          ip_address      = COALESCE($4::inet, ip_address),
+          port            = COALESCE($5::int, port),
+          credential_ref  = COALESCE($6, credential_ref),
+          status          = COALESCE($7::entity_status, status),
+          record_sessions = COALESCE($8, record_sessions),
+          updated_at      = now()
         WHERE id = $1
-        RETURNING id, name, description, environment, host(ip_address) AS ip_address, port, status`,
+        RETURNING id, name, description, environment, host(ip_address) AS ip_address, port, status, record_sessions`,
       [
         id,
         p.description ?? null,
@@ -229,6 +232,7 @@ export class Db {
         p.port ?? null,
         p.credentialRef ?? null,
         p.status ?? null,
+        p.recordSessions ?? null,
       ],
     );
     return rows[0] ?? null;
@@ -409,7 +413,8 @@ export class Db {
     const { rows } = await this.pool.query(
       `SELECT s.id, s.user_id, u.username, s.asset_id, a.name AS asset_name,
               s.status, host(s.client_ip) AS client_ip,
-              s.started_at, s.ended_at, s.end_reason, s.created_at
+              s.started_at, s.ended_at, s.end_reason, s.created_at,
+              (s.recording_path IS NOT NULL) AS has_recording
          FROM sessions s
          JOIN users u ON u.id = s.user_id
          JOIN assets a ON a.id = s.asset_id
@@ -442,6 +447,14 @@ export class Db {
       [f.eventType ?? null, f.userId ?? null, f.assetId ?? null, f.limit, f.offset],
     );
     return rows;
+  }
+
+  async getRecordingPath(sessionId: string): Promise<string | null> {
+    const { rows } = await this.pool.query(
+      "SELECT recording_path FROM sessions WHERE id = $1",
+      [sessionId],
+    );
+    return rows[0]?.recording_path ?? null;
   }
 
   async ping(): Promise<boolean> {

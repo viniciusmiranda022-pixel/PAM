@@ -13,6 +13,8 @@ import { resolveCredential } from "./config.js";
 import { Db, sha256 } from "./db.js";
 import { registerSession, unregisterSession } from "./registry.js";
 import { metrics } from "./metrics.js";
+import { SessionRecorder } from "./recorder.js";
+import path from "node:path";
 
 // Codigos de close do WebSocket (docs/api-contract.md secao 4).
 const CLOSE = {
@@ -69,6 +71,7 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
   let socket: net.Socket | null = null;
   let ended = false;
   let startedAt = 0;
+  let recorder: SessionRecorder | null = null;
   const end = async (
     status: "closed" | "failed" | "terminated",
     reason: string,
@@ -77,6 +80,7 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
     if (ended) return;
     ended = true;
     unregisterSession(session.sessionId);
+    recorder?.close();
     if (startedAt) metrics.sessionEnded(reason);
     try {
       socket?.destroy();
@@ -167,14 +171,34 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
       void end("terminated", reason, CLOSE.SESSION_INVALID),
     );
 
+    // Gravacao (Fase 5.1): tela (servidor->cliente) + ServerInit p/ playback.
+    // Teclado do usuario (cliente->servidor) NAO e gravado (pode conter senhas
+    // digitadas dentro da sessao — coerente com HR-06).
+    const recordingsDir = process.env.RECORDINGS_DIR;
+    if (session.recordSessions && recordingsDir) {
+      try {
+        const filePath = path.join(recordingsDir, `${session.sessionId}.pamrec`);
+        recorder = new SessionRecorder(filePath, serverInit);
+        await db.setRecordingPath(session.sessionId, filePath);
+        await db.audit("recording.started", { ...base });
+      } catch {
+        recorder = null;
+        await db.audit("recording.error", { ...base });
+      }
+    }
+
     // Splice binario transparente. Flush de qualquer residual bufferizado.
     const assetResidual = assetStream.detach();
-    if (assetResidual.length) ws.send(assetResidual, { binary: true });
+    if (assetResidual.length) {
+      ws.send(assetResidual, { binary: true });
+      recorder?.write(assetResidual);
+    }
     const wsResidual = wsStream.detach();
     if (wsResidual.length) socket.write(wsResidual);
 
     socket.on("data", (d) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(d, { binary: true });
+      recorder?.write(d);
     });
     ws.on("message", (d: Buffer, isBinary: boolean) => {
       if (isBinary && socket && !socket.destroyed) socket.write(d);

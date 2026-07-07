@@ -11,6 +11,7 @@ export interface ConsumedSession {
   assetStatus: "active" | "inactive";
   /** IP de origem fixado na criacao da sessao (fonte autoritativa p/ HR-10). */
   clientIp: string | null;
+  recordSessions: boolean;
 }
 
 export function sha256(token: string): Buffer {
@@ -41,7 +42,8 @@ export class Db {
        SELECT c.id AS session_id, c.user_id, c.asset_id,
               host(a.ip_address) AS ip, a.port,
               a.credential_ref, a.status AS asset_status,
-              host(c.client_ip) AS client_ip
+              host(c.client_ip) AS client_ip,
+              COALESCE(a.record_sessions, true) AS record_sessions
          FROM consumed c
          JOIN assets a ON a.id = c.asset_id`,
       [tokenHash],
@@ -57,6 +59,7 @@ export class Db {
       credentialRef: r.credential_ref,
       assetStatus: r.asset_status,
       clientIp: r.client_ip,
+      recordSessions: r.record_sessions,
     };
   }
 
@@ -111,6 +114,13 @@ export class Db {
         fields.sourceIp ?? null,
         JSON.stringify(fields.details ?? {}),
       ],
+    );
+  }
+
+  async setRecordingPath(sessionId: string, recordingPath: string): Promise<void> {
+    await this.pool.query(
+      "UPDATE sessions SET recording_path = $2 WHERE id = $1",
+      [sessionId, recordingPath],
     );
   }
 

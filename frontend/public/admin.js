@@ -97,6 +97,7 @@ async function loadSessions() {
     { label: "Status", get: (s) => s.status },
     { label: "Origem", get: (s) => s.client_ip ?? "" },
     { label: "Início", get: (s) => s.started_at ?? "" },
+    { label: "Gravação", get: (s) => s.has_recording ? `<a class="link" target="_blank" href="/replay?sessionId=${s.id}">assistir</a>` : "" },
   ], { name: "kill", label: "Encerrar", idKey: "id", run: async (id) => {
     if (await api(`/api/v1/sessions/${id}`, { method: "DELETE" }).then((r) => r.ok)) loadSessions();
   }});
@@ -144,7 +145,15 @@ async function submit(form, path, transform) {
 
 function wireForms() {
   $('[data-form="asset"]').onsubmit = (e) => { e.preventDefault();
-    submit(e.target, "/api/v1/admin/assets", (d) => ({ ...d, port: Number(d.port) })); };
+    submit(e.target, "/api/v1/admin/assets", (d) => ({
+      name: d.name,
+      description: d.description || undefined,
+      environment: d.environment,
+      ipAddress: d.ipAddress,
+      port: Number(d.port),
+      vncPassword: d.vncPassword,
+      recordSessions: d.recordSessions === "on",
+    })); };
   $('[data-form="user"]').onsubmit = (e) => { e.preventDefault();
     submit(e.target, "/api/v1/admin/users", (d) => d); };
   $('[data-form="group"]').onsubmit = (e) => { e.preventDefault();
