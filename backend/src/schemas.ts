@@ -20,6 +20,26 @@ export const mfaCodeSchema = z
 export const createSessionSchema = z
   .object({
     assetId: z.string().uuid(),
+    justification: z.string().min(1).max(1024).optional(),
+  })
+  .strict();
+
+export const createAccessRequestSchema = z
+  .object({
+    assetId: z.string().uuid(),
+    justification: z.string().min(3).max(1024),
+  })
+  .strict();
+
+export const approveAccessRequestSchema = z
+  .object({
+    windowMinutes: z.number().int().min(1).max(1440),
+  })
+  .strict();
+
+export const denyAccessRequestSchema = z
+  .object({
+    note: z.string().max(1024).optional(),
   })
   .strict();
 
@@ -37,6 +57,8 @@ export const createAssetSchema = z
     port: z.number().int(),
     vncPassword: z.string().min(1).max(1024), // write-only: vai ao cofre
     recordSessions: z.boolean().default(true),
+    requestable: z.boolean().default(false),
+    requireJustification: z.boolean().default(false),
   })
   .strict();
 
@@ -49,6 +71,8 @@ export const updateAssetSchema = z
     vncPassword: z.string().min(1).max(1024).optional(), // rotacao
     status: status.optional(),
     recordSessions: z.boolean().optional(),
+    requestable: z.boolean().optional(),
+    requireJustification: z.boolean().optional(),
   })
   .strict();
 

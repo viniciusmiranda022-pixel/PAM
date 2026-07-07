@@ -81,6 +81,11 @@ export class Db {
     }
   }
 
+  // Fragmento reutilizado: permissao valida agora (respeita a janela JIT).
+  private static readonly PERM_WINDOW =
+    `(p.valid_from IS NULL OR p.valid_from <= now())
+     AND (p.valid_until IS NULL OR p.valid_until > now())`;
+
   /** Assets ativos que o usuario pode ver (direto ou por grupo). Sem IP/porta. */
   async listAssetsForUser(userId: string): Promise<AssetListItem[]> {
     const { rows } = await this.pool.query(
@@ -90,6 +95,7 @@ export class Db {
          LEFT JOIN user_groups ug ON ug.group_id = p.group_id AND ug.user_id = $1
         WHERE a.status = 'active'
           AND (p.user_id = $1 OR ug.user_id = $1)
+          AND ${Db.PERM_WINDOW}
         ORDER BY a.name`,
       [userId],
     );
@@ -108,10 +114,126 @@ export class Db {
          FROM permissions p
          LEFT JOIN user_groups ug ON ug.group_id = p.group_id AND ug.user_id = $1
         WHERE p.asset_id = $2 AND (p.user_id = $1 OR ug.user_id = $1)
+          AND ${Db.PERM_WINDOW}
         LIMIT 1`,
       [userId, assetId],
     );
     return rows.length > 0;
+  }
+
+  async assetRequiresJustification(assetId: string): Promise<boolean> {
+    const { rows } = await this.pool.query(
+      "SELECT require_justification FROM assets WHERE id = $1",
+      [assetId],
+    );
+    return Boolean(rows[0]?.require_justification);
+  }
+
+  // ───────────────────── Acesso just-in-time (Fase 5.3) ─────────────────────
+
+  /** Catalogo: assets marcados requestable e ativos, sem IP/porta. */
+  async listRequestableAssets(): Promise<AssetListItem[]> {
+    const { rows } = await this.pool.query(
+      `SELECT id, name, description, environment, status
+         FROM assets WHERE status = 'active' AND requestable = true
+        ORDER BY name`,
+    );
+    return rows as AssetListItem[];
+  }
+
+  async isAssetRequestable(assetId: string): Promise<boolean> {
+    const { rows } = await this.pool.query(
+      "SELECT 1 FROM assets WHERE id = $1 AND status = 'active' AND requestable = true",
+      [assetId],
+    );
+    return rows.length > 0;
+  }
+
+  async createAccessRequest(userId: string, assetId: string, justification: string): Promise<string> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO access_requests (user_id, asset_id, justification)
+       VALUES ($1, $2, $3) RETURNING id`,
+      [userId, assetId, justification],
+    );
+    return rows[0].id;
+  }
+
+  async listAccessRequestsForUser(userId: string): Promise<Array<Record<string, unknown>>> {
+    const { rows } = await this.pool.query(
+      `SELECT r.id, r.asset_id, a.name AS asset_name, r.justification, r.status,
+              r.window_minutes, r.decided_at, r.decision_note, r.created_at
+         FROM access_requests r JOIN assets a ON a.id = r.asset_id
+        WHERE r.user_id = $1 ORDER BY r.created_at DESC`,
+      [userId],
+    );
+    return rows;
+  }
+
+  async adminListAccessRequests(status?: string): Promise<Array<Record<string, unknown>>> {
+    const { rows } = await this.pool.query(
+      `SELECT r.id, r.user_id, u.username, r.asset_id, a.name AS asset_name,
+              r.justification, r.status, r.window_minutes, r.created_at
+         FROM access_requests r
+         JOIN users u ON u.id = r.user_id
+         JOIN assets a ON a.id = r.asset_id
+        WHERE ($1::text IS NULL OR r.status = $1)
+        ORDER BY r.created_at DESC`,
+      [status ?? null],
+    );
+    return rows;
+  }
+
+  async getAccessRequest(
+    id: string,
+  ): Promise<{ id: string; userId: string; assetId: string; status: string } | null> {
+    const { rows } = await this.pool.query(
+      "SELECT id, user_id, asset_id, status FROM access_requests WHERE id = $1",
+      [id],
+    );
+    if (rows.length === 0) return null;
+    return { id: rows[0].id, userId: rows[0].user_id, assetId: rows[0].asset_id, status: rows[0].status };
+  }
+
+  /** Aprova: marca a request e cria uma permissao com janela [now, now+window]. */
+  async approveAccessRequest(
+    id: string,
+    adminId: string,
+    windowMinutes: number,
+  ): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows } = await client.query(
+        `UPDATE access_requests
+            SET status = 'approved', decided_by = $2, decided_at = now(), window_minutes = $3
+          WHERE id = $1 AND status = 'pending'
+        RETURNING user_id, asset_id`,
+        [id, adminId, windowMinutes],
+      );
+      if (rows.length === 1) {
+        await client.query(
+          `INSERT INTO permissions (asset_id, user_id, granted_by, valid_from, valid_until)
+           VALUES ($1, $2, $3, now(), now() + ($4 || ' minutes')::interval)`,
+          [rows[0].asset_id, rows[0].user_id, adminId, String(windowMinutes)],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  async denyAccessRequest(id: string, adminId: string, note: string | null): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE access_requests
+          SET status = 'denied', decided_by = $2, decided_at = now(), decision_note = $3
+        WHERE id = $1 AND status = 'pending'`,
+      [id, adminId, note],
+    );
+    return (rowCount ?? 0) > 0;
   }
 
   async getAsset(
@@ -139,12 +261,13 @@ export class Db {
     tokenHash: Buffer;
     ttlSeconds: number;
     clientIp: string | null;
+    justification: string | null;
   }): Promise<string> {
     const { rows } = await this.pool.query(
-      `INSERT INTO sessions (user_id, asset_id, token_hash, token_expires_at, status, client_ip)
-       VALUES ($1, $2, $3, now() + ($4 || ' seconds')::interval, 'pending', $5)
+      `INSERT INTO sessions (user_id, asset_id, token_hash, token_expires_at, status, client_ip, justification)
+       VALUES ($1, $2, $3, now() + ($4 || ' seconds')::interval, 'pending', $5, $6)
        RETURNING id`,
-      [params.userId, params.assetId, params.tokenHash, String(params.ttlSeconds), params.clientIp],
+      [params.userId, params.assetId, params.tokenHash, String(params.ttlSeconds), params.clientIp, params.justification],
     );
     return rows[0].id;
   }
@@ -198,7 +321,7 @@ export class Db {
   async adminListAssets(): Promise<Array<Record<string, unknown>>> {
     const { rows } = await this.pool.query(
       `SELECT id, name, description, environment, host(ip_address) AS ip_address,
-              port, status, record_sessions, created_at
+              port, status, record_sessions, requestable, require_justification, created_at
          FROM assets ORDER BY name`,
     );
     return rows;
@@ -212,12 +335,17 @@ export class Db {
     port: number;
     credentialRef: string;
     recordSessions: boolean;
+    requestable: boolean;
+    requireJustification: boolean;
   }): Promise<Record<string, unknown>> {
     const { rows } = await this.pool.query(
-      `INSERT INTO assets (name, description, environment, ip_address, port, credential_ref, record_sessions)
-       VALUES ($1, $2, $3, $4::inet, $5::int, $6, $7)
-       RETURNING id, name, description, environment, host(ip_address) AS ip_address, port, status, record_sessions, created_at`,
-      [p.name, p.description, p.environment, p.ipAddress, p.port, p.credentialRef, p.recordSessions],
+      `INSERT INTO assets (name, description, environment, ip_address, port, credential_ref,
+                           record_sessions, requestable, require_justification)
+       VALUES ($1, $2, $3, $4::inet, $5::int, $6, $7, $8, $9)
+       RETURNING id, name, description, environment, host(ip_address) AS ip_address, port, status,
+                 record_sessions, requestable, require_justification, created_at`,
+      [p.name, p.description, p.environment, p.ipAddress, p.port, p.credentialRef,
+       p.recordSessions, p.requestable, p.requireJustification],
     );
     return rows[0]; // nunca retorna credential_ref / senha
   }
@@ -232,20 +360,25 @@ export class Db {
       credentialRef?: string;
       status?: "active" | "inactive";
       recordSessions?: boolean;
+      requestable?: boolean;
+      requireJustification?: boolean;
     },
   ): Promise<Record<string, unknown> | null> {
     const { rows } = await this.pool.query(
       `UPDATE assets SET
-          description     = COALESCE($2, description),
-          environment     = COALESCE($3, environment),
-          ip_address      = COALESCE($4::inet, ip_address),
-          port            = COALESCE($5::int, port),
-          credential_ref  = COALESCE($6, credential_ref),
-          status          = COALESCE($7::entity_status, status),
-          record_sessions = COALESCE($8, record_sessions),
-          updated_at      = now()
+          description          = COALESCE($2, description),
+          environment          = COALESCE($3, environment),
+          ip_address           = COALESCE($4::inet, ip_address),
+          port                 = COALESCE($5::int, port),
+          credential_ref       = COALESCE($6, credential_ref),
+          status               = COALESCE($7::entity_status, status),
+          record_sessions      = COALESCE($8, record_sessions),
+          requestable          = COALESCE($9, requestable),
+          require_justification = COALESCE($10, require_justification),
+          updated_at           = now()
         WHERE id = $1
-        RETURNING id, name, description, environment, host(ip_address) AS ip_address, port, status, record_sessions`,
+        RETURNING id, name, description, environment, host(ip_address) AS ip_address, port, status,
+                  record_sessions, requestable, require_justification`,
       [
         id,
         p.description ?? null,
@@ -255,6 +388,8 @@ export class Db {
         p.credentialRef ?? null,
         p.status ?? null,
         p.recordSessions ?? null,
+        p.requestable ?? null,
+        p.requireJustification ?? null,
       ],
     );
     return rows[0] ?? null;

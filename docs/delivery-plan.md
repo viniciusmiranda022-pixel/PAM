@@ -109,6 +109,10 @@ trecho gateway→asset.
 - **5.2 — MFA (TOTP)** ✅ (ver [`phase5-mfa.md`](phase5-mfa.md)): 2FA por TOTP
   (RFC 6238), segredo cifrado no banco, login com `MFA_REQUIRED`, reset por
   admin, tudo auditado. Verificado (unit 11 c/ vetores do RFC + integração 22).
+- **5.3 — Acesso just-in-time** ✅ (ver [`phase5-jit.md`](phase5-jit.md)): janela
+  de validade nas permissões, catálogo opt-in (`requestable`), solicitação →
+  aprovação com janela, justificativa obrigatória por asset. Verificado
+  (integração 17). Restantes: VeNCrypt, SSO/OIDC.
 
 ## Épicos (backlog)
 

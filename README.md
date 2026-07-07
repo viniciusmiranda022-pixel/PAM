@@ -77,7 +77,8 @@ pam/
 | 4 | Operação: admin, sessões ativas, kill ao vivo, health, métricas, backup | ✅ ([`docs/phase4-operation.md`](docs/phase4-operation.md)) |
 | 5.1 | Gravação de sessão + playback no navegador | ✅ ([`docs/phase5-recording.md`](docs/phase5-recording.md)) |
 | 5.2 | MFA (TOTP, RFC 6238) com reset por admin | ✅ ([`docs/phase5-mfa.md`](docs/phase5-mfa.md)) |
-| 5.x | Avançado: SSO/OIDC, aprovação de acesso, VeNCrypt | backlog |
+| 5.3 | Acesso just-in-time (janela, catálogo, aprovação, justificativa) | ✅ ([`docs/phase5-jit.md`](docs/phase5-jit.md)) |
+| 5.x | Avançado: VeNCrypt, SSO/OIDC | backlog |
 
 Plano detalhado com critérios de aceite: [`docs/delivery-plan.md`](docs/delivery-plan.md).
 

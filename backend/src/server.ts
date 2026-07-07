@@ -12,12 +12,15 @@ import { portRejectionReason } from "./ports.js";
 import { RateLimiter } from "./rate-limit.js";
 import { metrics, registry } from "./metrics.js";
 import {
+  approveAccessRequestSchema,
+  createAccessRequestSchema,
   createAllowedPortSchema,
   createAssetSchema,
   createGroupSchema,
   createPermissionSchema,
   createSessionSchema,
   createUserSchema,
+  denyAccessRequestSchema,
   loginSchema,
   mfaCodeSchema,
   updateAssetSchema,
@@ -227,6 +230,73 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
     return { items: await db.listAssetsForUser(user.id) };
   });
 
+  // ─────────────── Acesso just-in-time — usuario (Fase 5.3) ────────────────
+
+  // Catalogo: apenas assets que o admin marcou como 'requestable'. Os demais
+  // permanecem invisiveis (preserva "usuario ve so o autorizado"). Sem IP/porta.
+  app.get("/api/v1/catalog", async (req, reply) => {
+    const user = await requireUser(req, reply);
+    if (!user) return;
+    return { items: await db.listRequestableAssets() };
+  });
+
+  app.post("/api/v1/access-requests", async (req, reply) => {
+    const user = await requireUser(req, reply);
+    if (!user) return;
+    const parsed = createAccessRequestSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "INVALID_BODY", "assetId e justificativa (>=3) obrigatorios");
+    if (!(await db.isAssetRequestable(parsed.data.assetId))) {
+      return fail(reply, 403, "NOT_AUTHORIZED", "asset nao disponivel para solicitacao");
+    }
+    const id = await db.createAccessRequest(user.id, parsed.data.assetId, parsed.data.justification);
+    await db.audit("access.requested", { userId: user.id, assetId: parsed.data.assetId, sourceIp: clientIp(req) });
+    return reply.code(201).send({ id, status: "pending" });
+  });
+
+  app.get("/api/v1/access-requests", async (req, reply) => {
+    const user = await requireUser(req, reply);
+    if (!user) return;
+    return { items: await db.listAccessRequestsForUser(user.id) };
+  });
+
+  // ─────────────── Acesso just-in-time — admin (Fase 5.3) ──────────────────
+
+  app.get<{ Querystring: { status?: string } }>("/api/v1/admin/access-requests", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    return { items: await db.adminListAccessRequests(req.query.status) };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/v1/admin/access-requests/:id/approve", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    const parsed = approveAccessRequestSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "INVALID_BODY", "windowMinutes (1..1440) obrigatorio");
+    const request = await db.getAccessRequest(req.params.id);
+    if (!request) return fail(reply, 404, "NOT_FOUND", "solicitacao inexistente");
+    if (request.status !== "pending") return fail(reply, 409, "CONFLICT", "solicitacao ja decidida");
+    await db.approveAccessRequest(req.params.id, admin.id, parsed.data.windowMinutes);
+    await db.audit("access.approved", {
+      userId: admin.id,
+      assetId: request.assetId,
+      sourceIp: clientIp(req),
+      details: { requestId: req.params.id, targetUser: request.userId, windowMinutes: parsed.data.windowMinutes },
+    });
+    return reply.code(204).send();
+  });
+
+  app.post<{ Params: { id: string } }>("/api/v1/admin/access-requests/:id/deny", async (req, reply) => {
+    const admin = await requireAdmin(req, reply);
+    if (!admin) return;
+    const parsed = denyAccessRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return fail(reply, 400, "INVALID_BODY", "payload invalido");
+    if (!(await db.denyAccessRequest(req.params.id, admin.id, parsed.data.note ?? null))) {
+      return fail(reply, 409, "CONFLICT", "solicitacao inexistente ou ja decidida");
+    }
+    await db.audit("access.denied", { userId: admin.id, sourceIp: clientIp(req), details: { requestId: req.params.id } });
+    return reply.code(204).send();
+  });
+
   app.post("/api/v1/sessions", async (req, reply) => {
     const user = await requireUser(req, reply);
     if (!user) return;
@@ -242,12 +312,20 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
       // host/port ou qualquer campo extra caem aqui (HR-01/02).
       return fail(reply, 400, "INVALID_BODY", "corpo aceita somente assetId");
     }
-    const { assetId } = parsed.data;
+    const { assetId, justification } = parsed.data;
     const ip = clientIp(req);
 
     if (!(await db.userCanAccessAsset(user.id, assetId))) {
+      // Inclui permissao expirada (janela JIT vencida) — mesmo 403.
       await db.audit("session.denied", { userId: user.id, assetId, sourceIp: ip, details: { reason: "no_permission" } });
       return fail(reply, 403, "NOT_AUTHORIZED", "sem permissao no asset");
+    }
+
+    // Justificativa obrigatoria por asset (Fase 5.3).
+    if (await db.assetRequiresJustification(assetId)) {
+      if (!justification || justification.trim().length < 3) {
+        return fail(reply, 422, "VALIDATION_FAILED", "justificativa obrigatoria para este asset");
+      }
     }
 
     const asset = await db.getAsset(assetId);
@@ -267,8 +345,15 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
       tokenHash: sha256(token),
       ttlSeconds: config.sessionTokenTtlSeconds,
       clientIp: ip,
+      justification: justification ?? null,
     });
-    await db.audit("session.created", { userId: user.id, assetId, sessionId, sourceIp: ip });
+    await db.audit("session.created", {
+      userId: user.id,
+      assetId,
+      sessionId,
+      sourceIp: ip,
+      details: { hasJustification: Boolean(justification) },
+    });
     metrics.sessionCreated();
 
     // A resposta nunca inclui host/porta/credencial.
@@ -344,6 +429,8 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
         port: a.port,
         credentialRef,
         recordSessions: a.recordSessions,
+        requestable: a.requestable,
+        requireJustification: a.requireJustification,
       });
       await db.audit("asset.created", { userId: admin.id, assetId: created.id as string, sourceIp: clientIp(req) });
       return reply.code(201).send(created); // sem credential_ref
@@ -375,6 +462,8 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
         credentialRef,
         status: p.status,
         recordSessions: p.recordSessions,
+        requestable: p.requestable,
+        requireJustification: p.requireJustification,
       });
       if (!updated) return fail(reply, 404, "NOT_FOUND", "asset inexistente");
       await db.audit("asset.updated", {
