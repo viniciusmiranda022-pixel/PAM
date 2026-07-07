@@ -116,7 +116,11 @@ trecho gateway→asset.
 - **5.4 — VeNCrypt (TLS gateway→asset)** ✅ (ver [`phase5-vencrypt.md`](phase5-vencrypt.md)):
   cifra o trecho gateway→asset com TLS (subtypes X509), autenticação VNC dentro
   do túnel, flag `tls_required` por asset. Verificado (integração 10 com TLS real
-  do Node). Restante: SSO/OIDC.
+  do Node).
+- **5.5 — SSO/OIDC** ✅ (ver [`phase5-sso.md`](phase5-sso.md)): Authorization Code
+  flow, verificação RS256 do id_token via JWKS (node:crypto), provisionamento e
+  vínculo por email, `state`/`nonce`. Verificado (integração 12 com IdP simulado
+  e RSA real). **Os três avançados escolhidos estão entregues.**
 
 ## Épicos (backlog)
 

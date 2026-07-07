@@ -5,7 +5,7 @@ export interface UserRow {
   username: string;
   displayName: string;
   role: "user" | "admin";
-  passwordHash: string;
+  passwordHash: string | null; // null p/ usuarios só-SSO
   status: "active" | "inactive";
   mfaEnabled: boolean;
   /** Segredo TOTP cifrado (enc:v1) ou null. Nunca sai em resposta de API. */
@@ -32,7 +32,7 @@ export class Db {
       username: r.username as string,
       displayName: r.display_name as string,
       role: r.role as "user" | "admin",
-      passwordHash: r.password_hash as string,
+      passwordHash: (r.password_hash as string | null) ?? null,
       status: r.status as "active" | "inactive",
       mfaEnabled: Boolean(r.mfa_enabled),
       mfaSecretEnc: (r.mfa_secret as string | null) ?? null,
@@ -55,6 +55,40 @@ export class Db {
               mfa_enabled, mfa_secret
          FROM users WHERE id = $1`,
       [id],
+    );
+    return rows.length ? Db.mapUser(rows[0]) : null;
+  }
+
+  async findUserByOidcSubject(sub: string): Promise<UserRow | null> {
+    const { rows } = await this.pool.query(
+      `SELECT id, username, display_name, role, password_hash, status, mfa_enabled, mfa_secret
+         FROM users WHERE oidc_subject = $1`,
+      [sub],
+    );
+    return rows.length ? Db.mapUser(rows[0]) : null;
+  }
+
+  /** Vincula um sub OIDC a uma conta local existente (login por email/username). */
+  async linkOidcSubject(userId: string, sub: string): Promise<void> {
+    await this.pool.query("UPDATE users SET oidc_subject = $2, updated_at = now() WHERE id = $1", [userId, sub]);
+  }
+
+  /** Cria uma conta a partir do SSO (sem senha local). */
+  async createOidcUser(sub: string, username: string, displayName: string, email: string | null): Promise<UserRow> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO users (username, display_name, email, role, oidc_subject)
+       VALUES ($1, $2, $3, 'user', $4)
+       RETURNING id, username, display_name, role, password_hash, status, mfa_enabled, mfa_secret`,
+      [username, displayName, email, sub],
+    );
+    return Db.mapUser(rows[0]);
+  }
+
+  async findUserByEmail(email: string): Promise<UserRow | null> {
+    const { rows } = await this.pool.query(
+      `SELECT id, username, display_name, role, password_hash, status, mfa_enabled, mfa_secret
+         FROM users WHERE email = $1`,
+      [email],
     );
     return rows.length ? Db.mapUser(rows[0]) : null;
   }
