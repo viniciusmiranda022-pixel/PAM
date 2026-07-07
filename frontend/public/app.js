@@ -221,6 +221,15 @@ $("logout").addEventListener("click", async () => {
 
 $("end-session").addEventListener("click", endSession);
 
+// Botão SSO: aparece só se o backend tiver OIDC configurado.
+$("sso-btn").addEventListener("click", () => {
+  location.href = "/api/v1/auth/oidc/login";
+});
+(async () => {
+  const cfg = await api("/api/v1/auth/config").then((r) => r.json()).catch(() => ({}));
+  $("sso-btn").hidden = !cfg.oidcEnabled;
+})();
+
 // Estado inicial: tenta retomar sessao de login existente.
 (async () => {
   const res = await api("/api/v1/auth/me");

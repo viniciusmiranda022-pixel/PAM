@@ -107,6 +107,13 @@ services:
       VAULT_KV_MOUNT: ${VAULT_KV_MOUNT:-secret}
       RATE_LIMIT_LOGIN_PER_MIN: ${RATE_LIMIT_LOGIN_PER_MIN:-5}
       RATE_LIMIT_SESSION_PER_MIN: ${RATE_LIMIT_SESSION_PER_MIN:-10}
+      # SSO/OIDC (Fase 5.5) — opcional. Definindo os 4 primeiros, o botao
+      # "Entrar com SSO" aparece e o Authorization Code flow fica ativo.
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
+      OIDC_AUTO_PROVISION: ${OIDC_AUTO_PROVISION:-true}
     volumes:
       # Somente leitura: o backend apenas serve as gravacoes ao admin.
       - recordings:/recordings:ro

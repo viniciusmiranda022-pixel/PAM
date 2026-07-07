@@ -8,6 +8,7 @@ import { hashPassword, verifyPassword } from "./auth.js";
 import { storeCredential } from "./credential-store.js";
 import { decryptCredential, encryptCredential } from "./credentials.js";
 import { generateTotpSecret, otpauthUrl, verifyTotp } from "./totp.js";
+import { buildAuthUrl, discover, exchangeCode, oidcConfig, verifyIdToken } from "./oidc.js";
 import { portRejectionReason } from "./ports.js";
 import { RateLimiter } from "./rate-limit.js";
 import { metrics, registry } from "./metrics.js";
@@ -128,7 +129,9 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
     if (!parsed.success) return fail(reply, 400, "INVALID_BODY", "payload invalido");
     const { username, password, totp } = parsed.data;
     const user = await db.findUserByUsername(username);
-    const ok = user && user.status === "active" && verifyPassword(password, user.passwordHash);
+    const ok =
+      user && user.status === "active" && user.passwordHash !== null &&
+      verifyPassword(password, user.passwordHash);
     if (!ok || !user) {
       metrics.login("fail");
       await db.audit("auth.login_failed", { sourceIp: clientIp(req), details: { username } });
@@ -148,7 +151,13 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
       }
     }
     metrics.login("ok");
-    reply.setCookie(COOKIE_NAME, user.id, {
+    setSession(reply, user.id);
+    await db.audit("auth.login", { userId: user.id, sourceIp: clientIp(req) });
+    return reply.code(204).send();
+  });
+
+  function setSession(reply: FastifyReply, userId: string): void {
+    reply.setCookie(COOKIE_NAME, userId, {
       httpOnly: true,
       sameSite: "strict",
       secure: config.secureCookie,
@@ -156,14 +165,89 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
       path: "/",
       maxAge: 8 * 60 * 60,
     });
-    await db.audit("auth.login", { userId: user.id, sourceIp: clientIp(req) });
-    return reply.code(204).send();
-  });
+  }
 
   app.post("/api/v1/auth/logout", async (_req, reply) => {
     reply.clearCookie(COOKIE_NAME, { path: "/" });
     return reply.code(204).send();
   });
+
+  // Informa ao frontend se o botao "Entrar com SSO" deve aparecer.
+  app.get("/api/v1/auth/config", async () => ({ oidcEnabled: oidcConfig() !== null }));
+
+  // ───────────────────────────── SSO / OIDC (Fase 5.5) ─────────────────────
+  const OIDC_TX_COOKIE = "pam_oidc_tx";
+
+  app.get("/api/v1/auth/oidc/login", async (req, reply) => {
+    const cfg = oidcConfig();
+    if (!cfg) return fail(reply, 404, "NOT_FOUND", "SSO nao configurado");
+    const disc = await discover(cfg.issuer);
+    const state = randomBytes(16).toString("base64url");
+    const nonce = randomBytes(16).toString("base64url");
+    // state+nonce guardados em cookie assinado de curta duracao (stateless).
+    reply.setCookie(OIDC_TX_COOKIE, JSON.stringify({ state, nonce }), {
+      httpOnly: true,
+      sameSite: "lax", // o retorno vem via redirect do IdP (cross-site GET)
+      secure: config.secureCookie,
+      signed: true,
+      path: "/",
+      maxAge: 600,
+    });
+    return reply.redirect(buildAuthUrl(disc, cfg, state, nonce));
+  });
+
+  app.get<{ Querystring: { code?: string; state?: string } }>(
+    "/api/v1/auth/oidc/callback",
+    async (req, reply) => {
+      const cfg = oidcConfig();
+      if (!cfg) return fail(reply, 404, "NOT_FOUND", "SSO nao configurado");
+      const raw = req.cookies[OIDC_TX_COOKIE];
+      const unsigned = raw ? app.unsignCookie(raw) : { valid: false, value: null };
+      if (!unsigned.valid || !unsigned.value) return fail(reply, 400, "INVALID_BODY", "transacao OIDC ausente");
+      const tx = JSON.parse(unsigned.value) as { state: string; nonce: string };
+      reply.clearCookie(OIDC_TX_COOKIE, { path: "/" });
+
+      if (!req.query.code || req.query.state !== tx.state) {
+        await db.audit("auth.oidc_failed", { sourceIp: clientIp(req), details: { reason: "state_mismatch" } });
+        return fail(reply, 400, "INVALID_BODY", "state invalido");
+      }
+      let claims;
+      try {
+        const disc = await discover(cfg.issuer);
+        const idToken = await exchangeCode(disc, cfg, req.query.code);
+        claims = await verifyIdToken(idToken, cfg, disc, tx.nonce);
+      } catch (err) {
+        await db.audit("auth.oidc_failed", { sourceIp: clientIp(req), details: { reason: "token_invalid" } });
+        return fail(reply, 401, "NOT_AUTHENTICATED", "falha na verificacao OIDC");
+      }
+
+      // Mapeia sub -> usuario: por sub, senao vincula por email, senao provisiona.
+      let user = await db.findUserByOidcSubject(claims.sub);
+      if (!user && claims.email) {
+        const byEmail = await db.findUserByEmail(claims.email);
+        if (byEmail) {
+          await db.linkOidcSubject(byEmail.id, claims.sub);
+          user = byEmail;
+          await db.audit("auth.oidc_linked", { userId: user.id, sourceIp: clientIp(req) });
+        }
+      }
+      if (!user) {
+        if (!cfg.autoProvision) {
+          await db.audit("auth.oidc_failed", { sourceIp: clientIp(req), details: { reason: "no_account" } });
+          return fail(reply, 403, "NOT_AUTHORIZED", "sem conta local para este SSO");
+        }
+        const username = claims.preferredUsername || claims.email || `oidc-${claims.sub.slice(0, 12)}`;
+        user = await db.createOidcUser(claims.sub, username, claims.name || username, claims.email ?? null);
+        await db.audit("auth.oidc_provisioned", { userId: user.id, sourceIp: clientIp(req) });
+      }
+      if (user.status !== "active") return fail(reply, 403, "NOT_AUTHORIZED", "usuario inativo");
+
+      setSession(reply, user.id);
+      metrics.login("ok");
+      await db.audit("auth.login", { userId: user.id, sourceIp: clientIp(req), details: { via: "oidc" } });
+      return reply.redirect("/"); // volta ao portal ja autenticado
+    },
+  );
 
   app.get("/api/v1/auth/me", async (req, reply) => {
     const user = await requireUser(req, reply);
