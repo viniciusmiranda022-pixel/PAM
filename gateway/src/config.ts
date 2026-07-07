@@ -24,16 +24,31 @@ function masterKey(env: NodeJS.ProcessEnv): Buffer {
   return key;
 }
 
+async function readVaultSecret(path: string, env: NodeJS.ProcessEnv): Promise<string> {
+  const addr = env.VAULT_ADDR;
+  const token = env.VAULT_TOKEN;
+  if (!addr || !token) throw new Error("VAULT_ADDR/VAULT_TOKEN nao definidos");
+  const mount = env.VAULT_KV_MOUNT ?? "secret";
+  const res = await fetch(`${addr.replace(/\/+$/, "")}/v1/${mount}/data/${path}`, {
+    headers: { "X-Vault-Token": token },
+  });
+  if (!res.ok) throw new Error(`vault read falhou: ${res.status}`);
+  const body = (await res.json()) as { data?: { data?: { password?: unknown } } };
+  const pw = body?.data?.data?.password;
+  if (typeof pw !== "string") throw new Error("segredo vault sem campo password");
+  return pw;
+}
+
 /**
  * Resolve a referencia de credencial de um asset para a senha VNC.
  *
  * Unico ponto que materializa uma senha (seam do cofre). Providers:
  *   - `env:NOME`        -> variavel de ambiente (asset de laboratorio)
  *   - `enc:v1:<n>:<b>`  -> AES-256-GCM cifrado pelo backend (Fase 2)
- * Na Fase 3 entra o Vault (`vault:caminho`) sem mudar o resto do gateway.
+ *   - `vault:<path>`    -> HashiCorp Vault KV v2 (Fase 3)
  * A senha jamais e logada.
  */
-export function resolveCredential(ref: string | null, env = process.env): string {
+export async function resolveCredential(ref: string | null, env = process.env): Promise<string> {
   if (!ref) throw new Error("asset sem credential_ref");
   if (ref.startsWith("env:")) {
     const name = ref.slice(4);
@@ -51,6 +66,9 @@ export function resolveCredential(ref: string | null, env = process.env): string
     const decipher = createDecipheriv("aes-256-gcm", masterKey(env), nonce);
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
+  }
+  if (ref.startsWith("vault:")) {
+    return readVaultSecret(ref.slice("vault:".length), env);
   }
   throw new Error("provider de credencial nao suportado");
 }

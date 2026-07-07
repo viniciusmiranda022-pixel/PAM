@@ -4,8 +4,9 @@ import { randomBytes, createHash } from "node:crypto";
 import type { Config } from "./config.js";
 import type { Db, UserRow } from "./db.js";
 import { hashPassword, verifyPassword } from "./auth.js";
-import { encryptCredential } from "./credentials.js";
+import { storeCredential } from "./credential-store.js";
 import { portRejectionReason } from "./ports.js";
+import { RateLimiter } from "./rate-limit.js";
 import {
   createAllowedPortSchema,
   createAssetSchema,
@@ -42,7 +43,7 @@ function clientIp(req: FastifyRequest): string | null {
   return req.ip ?? null;
 }
 
-export function buildServer(db: Db, config: Config) {
+export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableStream) {
   const app = Fastify({
     trustProxy: true,
     logger: {
@@ -51,7 +52,8 @@ export function buildServer(db: Db, config: Config) {
         paths: [
           "req.headers.cookie",
           "req.headers.authorization",
-          'req.body.password',
+          "req.body.password",
+          "req.body.vncPassword",
           "*.password",
           "*.vncPassword",
           "*.token",
@@ -59,10 +61,21 @@ export function buildServer(db: Db, config: Config) {
         ],
         remove: true,
       },
+      ...(logStream ? { stream: logStream } : {}),
     },
   });
 
   app.register(cookie, { secret: config.cookieSecret });
+
+  // Rate limit (HR / DoS): login por IP, criacao de sessao por usuario.
+  const loginLimiter = new RateLimiter(config.rateLimitLoginPerMin, 60_000);
+  const sessionLimiter = new RateLimiter(config.rateLimitSessionPerMin, 60_000);
+  const pruneTimer = setInterval(() => {
+    loginLimiter.prune();
+    sessionLimiter.prune();
+  }, 60_000);
+  pruneTimer.unref?.();
+  app.addHook("onClose", async () => clearInterval(pruneTimer));
 
   async function requireUser(req: FastifyRequest, reply: FastifyReply): Promise<UserRow | null> {
     const raw = req.cookies[COOKIE_NAME];
@@ -86,6 +99,11 @@ export function buildServer(db: Db, config: Config) {
   app.get("/healthz", async () => ({ status: "ok" }));
 
   app.post("/api/v1/auth/login", async (req, reply) => {
+    const ip = clientIp(req) ?? "unknown";
+    if (!loginLimiter.check(ip)) {
+      await db.audit("auth.rate_limited", { sourceIp: ip });
+      return fail(reply, 429, "RATE_LIMITED", "muitas tentativas de login");
+    }
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) return fail(reply, 400, "INVALID_BODY", "payload invalido");
     const { username, password } = parsed.data;
@@ -133,6 +151,11 @@ export function buildServer(db: Db, config: Config) {
   app.post("/api/v1/sessions", async (req, reply) => {
     const user = await requireUser(req, reply);
     if (!user) return;
+
+    if (!sessionLimiter.check(user.id)) {
+      await db.audit("session.rate_limited", { userId: user.id, sourceIp: clientIp(req) });
+      return fail(reply, 429, "RATE_LIMITED", "muitas sessoes em pouco tempo");
+    }
 
     const parsed = createSessionSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -230,8 +253,8 @@ export function buildServer(db: Db, config: Config) {
       return fail(reply, 422, "VALIDATION_FAILED", "porta nao esta na allowlist");
     }
     try {
-      // vncPassword e write-only: cifrada e guardada como credential_ref.
-      const credentialRef = encryptCredential(a.vncPassword);
+      // vncPassword e write-only: guardada no cofre; DB so tem a referencia.
+      const credentialRef = await storeCredential(a.vncPassword, config);
       const created = await db.adminCreateAsset({
         name: a.name,
         description: a.description ?? null,
@@ -261,7 +284,7 @@ export function buildServer(db: Db, config: Config) {
       }
     }
     try {
-      const credentialRef = p.vncPassword !== undefined ? encryptCredential(p.vncPassword) : undefined;
+      const credentialRef = p.vncPassword !== undefined ? await storeCredential(p.vncPassword, config) : undefined;
       const updated = await db.adminUpdateAsset(req.params.id, {
         description: p.description,
         environment: p.environment,

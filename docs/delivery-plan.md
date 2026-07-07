@@ -58,20 +58,24 @@ Critérios de aceite:
 > admin 27 — todos verdes), incluindo o cofre AES-GCM fim-a-fim (backend cifra →
 > gateway decifra). Cadastro de assets/usuários/permissões via `/admin`.
 
-## Fase 3 — Segurança
+## Fase 3 — Segurança ✅ (ver [`phase3-security.md`](phase3-security.md))
 
-Entregáveis: token efêmero definitivo (uso único + TTL 30s), allowlist de portas
-com denylist imutável, bloqueio de host arbitrário testado, HashiCorp Vault,
-rate limit, TLS/WSS fim a fim, auditoria completa, teste-sentinela de vazamento
-de senha.
+Entregáveis: token efêmero (uso único + TTL, Fase 1), allowlist + denylist
+imutável (Fase 2), bloqueio de host arbitrário testado, **HashiCorp Vault**,
+rate limit, auditoria completa, teste-sentinela de vazamento de senha. TLS/WSS
+na borda (Nginx); mTLS interno e VeNCrypt ficam na Fase 5.
 
 Critérios de aceite:
-- [ ] Token expira (teste automatizado)
-- [ ] Token é de uso único (teste de corrida com 2 conexões)
-- [ ] Senha não aparece no navegador nem em nenhum log (teste sentinela)
-- [ ] Porta não permitida é bloqueada na API, no banco e no gateway
-- [ ] Asset não autorizado retorna 403 e gera auditoria
-- [ ] Gateway recusa destino que não responde banner RFB
+- [x] Token expira (teste automatizado)
+- [x] Token é de uso único (teste de corrida com 2 conexões)
+- [x] Senha não aparece no navegador nem em nenhum log (teste sentinela)
+- [x] Porta não permitida é bloqueada na API, no banco e no gateway
+- [x] Asset não autorizado retorna 403 e gera auditoria
+- [x] Gateway recusa destino que não responde banner RFB
+
+> Verificado com Postgres real + fakes in-process (Vault KV v2, servidor
+> não-VNC): backend unit 16, gateway unit 20, integração Fase 3 12 — todos
+> verdes, incluindo Vault e2e (backend grava → gateway lê) e a sentinela de senha.
 
 ## Fase 4 — Administração e operação
 

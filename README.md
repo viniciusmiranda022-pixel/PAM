@@ -73,8 +73,8 @@ pam/
 | 0 | Desenho técnico | ✅ |
 | 1 | PoC: noVNC + gateway WS→TCP + asset de laboratório | ✅ ([`docs/phase1-poc.md`](docs/phase1-poc.md)) |
 | 2 | MVP: login, assets, permissões, sessões, logs básicos | ✅ ([`docs/phase2-mvp.md`](docs/phase2-mvp.md)) |
-| 3 | Segurança: token efêmero, allowlist, cofre Vault, auditoria, TLS/WSS | parcial (cofre AES-GCM, denylist já na Fase 2) |
-| 4 | Operação: admin, sessões ativas, kill, health, métricas | pendente |
+| 3 | Segurança: token efêmero, allowlist, cofre Vault, rate limit, auditoria, TLS/WSS | ✅ ([`docs/phase3-security.md`](docs/phase3-security.md)) |
+| 4 | Operação: admin, sessões ativas, kill, health, métricas | parcial (admin/sessões/kill já na Fase 2) |
 | 5 | Avançado: MFA, SSO, gravação, aprovação (fora do MVP) | backlog |
 
 Plano detalhado com critérios de aceite: [`docs/delivery-plan.md`](docs/delivery-plan.md).

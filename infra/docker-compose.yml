@@ -67,6 +67,10 @@ services:
       # A master key precisa ser IDENTICA no backend e no gateway. Fase 3: Vault.
       LAB_VNC_PASSWORD: ${LAB_VNC_PASSWORD:-labonly1}
       CREDENTIAL_MASTER_KEY: ${CREDENTIAL_MASTER_KEY:?defina CREDENTIAL_MASTER_KEY no infra/.env}
+      # Vault (Fase 3): usado quando algum asset tiver credential_ref vault:*
+      VAULT_ADDR: ${VAULT_ADDR:-http://vault:8200}
+      VAULT_TOKEN: ${VAULT_TOKEN:-root}
+      VAULT_KV_MOUNT: ${VAULT_KV_MOUNT:-secret}
     networks: [app_net, assets_net] # único serviço com pé nas duas redes
     depends_on:
       postgres:
@@ -82,6 +86,13 @@ services:
       GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-wss://localhost/gateway/vnc}
       SECURE_COOKIE: ${SECURE_COOKIE:-true}
       CREDENTIAL_MASTER_KEY: ${CREDENTIAL_MASTER_KEY:?defina CREDENTIAL_MASTER_KEY no infra/.env}
+      # Provider de credencial: enc (AES-GCM, default) | vault (HashiCorp Vault)
+      CREDENTIAL_PROVIDER: ${CREDENTIAL_PROVIDER:-enc}
+      VAULT_ADDR: ${VAULT_ADDR:-http://vault:8200}
+      VAULT_TOKEN: ${VAULT_TOKEN:-root}
+      VAULT_KV_MOUNT: ${VAULT_KV_MOUNT:-secret}
+      RATE_LIMIT_LOGIN_PER_MIN: ${RATE_LIMIT_LOGIN_PER_MIN:-5}
+      RATE_LIMIT_SESSION_PER_MIN: ${RATE_LIMIT_SESSION_PER_MIN:-10}
     networks: [app_net] # sem rota para assets_net, por design
     depends_on:
       postgres:
@@ -105,8 +116,9 @@ services:
     networks: [app_net]
     depends_on: [backend, gateway, frontend]
 
-  # Cofre de credenciais — modo dev apenas para laboratório (Fase 3 configura
-  # storage persistente, unseal e AppRole).
+  # Cofre de credenciais — modo dev (root token fixo, KV v2 em 'secret/').
+  # Só é necessário quando CREDENTIAL_PROVIDER=vault. Produção usa storage
+  # persistente, unseal e AppRole (fora do escopo do lab).
   vault:
     profiles: [app]
     image: hashicorp/vault:1.17
@@ -114,4 +126,5 @@ services:
     cap_add: [IPC_LOCK]
     environment:
       VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_TOKEN:-root}
     networks: [app_net]
