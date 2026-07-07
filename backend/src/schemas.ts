@@ -4,7 +4,12 @@ export const loginSchema = z
   .object({
     username: z.string().min(1).max(128),
     password: z.string().min(1).max(1024),
+    totp: z.string().regex(/^\d{6}$/).optional(), // exigido se MFA habilitado
   })
+  .strict();
+
+export const mfaCodeSchema = z
+  .object({ code: z.string().regex(/^\d{6}$/) })
   .strict();
 
 /**
@@ -64,6 +69,7 @@ export const updateUserSchema = z
     password: z.string().min(8).max(1024).optional(),
     role: role.optional(),
     status: status.optional(),
+    mfaReset: z.literal(true).optional(), // admin: limpa e desabilita o MFA
   })
   .strict();
 

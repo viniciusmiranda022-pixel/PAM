@@ -106,6 +106,9 @@ trecho gateway→asset.
   o gateway grava a tela (S→C; sem teclado, por privacidade/HR-06) em formato
   `PAMREC01`; admin assiste no navegador via noVNC em replay. Flag por asset,
   download admin-only e auditado. Verificado (unit 4 + integração 10).
+- **5.2 — MFA (TOTP)** ✅ (ver [`phase5-mfa.md`](phase5-mfa.md)): 2FA por TOTP
+  (RFC 6238), segredo cifrado no banco, login com `MFA_REQUIRED`, reset por
+  admin, tudo auditado. Verificado (unit 11 c/ vetores do RFC + integração 22).
 
 ## Épicos (backlog)
 

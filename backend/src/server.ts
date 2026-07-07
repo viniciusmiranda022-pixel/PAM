@@ -6,6 +6,8 @@ import type { Config } from "./config.js";
 import type { Db, UserRow } from "./db.js";
 import { hashPassword, verifyPassword } from "./auth.js";
 import { storeCredential } from "./credential-store.js";
+import { decryptCredential, encryptCredential } from "./credentials.js";
+import { generateTotpSecret, otpauthUrl, verifyTotp } from "./totp.js";
 import { portRejectionReason } from "./ports.js";
 import { RateLimiter } from "./rate-limit.js";
 import { metrics, registry } from "./metrics.js";
@@ -17,6 +19,7 @@ import {
   createSessionSchema,
   createUserSchema,
   loginSchema,
+  mfaCodeSchema,
   updateAssetSchema,
   updateUserSchema,
 } from "./schemas.js";
@@ -120,13 +123,26 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
     }
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) return fail(reply, 400, "INVALID_BODY", "payload invalido");
-    const { username, password } = parsed.data;
+    const { username, password, totp } = parsed.data;
     const user = await db.findUserByUsername(username);
     const ok = user && user.status === "active" && verifyPassword(password, user.passwordHash);
     if (!ok || !user) {
       metrics.login("fail");
       await db.audit("auth.login_failed", { sourceIp: clientIp(req), details: { username } });
       return fail(reply, 401, "NOT_AUTHENTICATED", "credenciais invalidas");
+    }
+    // MFA (Fase 5.2): senha correta nao basta se o TOTP estiver habilitado.
+    if (user.mfaEnabled && user.mfaSecretEnc) {
+      if (!totp) {
+        // Codigo dedicado: o frontend mostra o campo TOTP sem revelar se a
+        // senha estava certa para quem nao passou da primeira etapa.
+        return fail(reply, 401, "MFA_REQUIRED", "informe o codigo TOTP");
+      }
+      if (!verifyTotp(decryptCredential(user.mfaSecretEnc), totp)) {
+        metrics.login("fail");
+        await db.audit("auth.login_failed", { userId: user.id, sourceIp: clientIp(req), details: { reason: "totp_invalid" } });
+        return fail(reply, 401, "NOT_AUTHENTICATED", "codigo TOTP invalido");
+      }
     }
     metrics.login("ok");
     reply.setCookie(COOKIE_NAME, user.id, {
@@ -154,7 +170,54 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
       username: user.username,
       displayName: user.displayName,
       role: user.role,
+      mfaEnabled: user.mfaEnabled,
     };
+  });
+
+  // ─────────────────────────── MFA (TOTP, Fase 5.2) ────────────────────────
+
+  // Gera segredo pendente (cifrado no banco) e retorna otpauth p/ authenticator.
+  app.post("/api/v1/auth/mfa/setup", async (req, reply) => {
+    const user = await requireUser(req, reply);
+    if (!user) return;
+    if (user.mfaEnabled) return fail(reply, 409, "CONFLICT", "MFA ja habilitado");
+    const secret = generateTotpSecret();
+    await db.setMfaSecret(user.id, encryptCredential(secret));
+    await db.audit("mfa.setup_started", { userId: user.id, sourceIp: clientIp(req) });
+    // O segredo e mostrado UMA vez para cadastro no authenticator.
+    return { secret, otpauthUrl: otpauthUrl(secret, user.username) };
+  });
+
+  // Confirma o cadastro provando posse do authenticator.
+  app.post("/api/v1/auth/mfa/enable", async (req, reply) => {
+    const user = await requireUser(req, reply);
+    if (!user) return;
+    const parsed = mfaCodeSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "INVALID_BODY", "informe code de 6 digitos");
+    if (!user.mfaSecretEnc) return fail(reply, 422, "VALIDATION_FAILED", "faca o setup antes");
+    if (!verifyTotp(decryptCredential(user.mfaSecretEnc), parsed.data.code)) {
+      return fail(reply, 401, "NOT_AUTHENTICATED", "codigo TOTP invalido");
+    }
+    await db.setMfaEnabled(user.id, true);
+    await db.audit("mfa.enabled", { userId: user.id, sourceIp: clientIp(req) });
+    return reply.code(204).send();
+  });
+
+  // Desabilita exigindo um codigo valido (nao basta ter a sessao logada).
+  app.post("/api/v1/auth/mfa/disable", async (req, reply) => {
+    const user = await requireUser(req, reply);
+    if (!user) return;
+    const parsed = mfaCodeSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "INVALID_BODY", "informe code de 6 digitos");
+    if (!user.mfaEnabled || !user.mfaSecretEnc) {
+      return fail(reply, 422, "VALIDATION_FAILED", "MFA nao esta habilitado");
+    }
+    if (!verifyTotp(decryptCredential(user.mfaSecretEnc), parsed.data.code)) {
+      return fail(reply, 401, "NOT_AUTHENTICATED", "codigo TOTP invalido");
+    }
+    await db.setMfaEnabled(user.id, false);
+    await db.audit("mfa.disabled", { userId: user.id, sourceIp: clientIp(req) });
+    return reply.code(204).send();
   });
 
   app.get("/api/v1/assets", async (req, reply) => {
@@ -383,7 +446,12 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
         status: p.status,
       });
       if (!updated) return fail(reply, 404, "NOT_FOUND", "usuario inexistente");
-      await db.audit("user.updated", { userId: admin.id, sourceIp: clientIp(req), details: { updated: req.params.id } });
+      if (p.mfaReset) {
+        // Recuperacao operada pelo admin (usuario perdeu o authenticator).
+        await db.setMfaEnabled(req.params.id, false);
+        await db.audit("mfa.reset_by_admin", { userId: admin.id, sourceIp: clientIp(req), details: { target: req.params.id } });
+      }
+      await db.audit("user.updated", { userId: admin.id, sourceIp: clientIp(req), details: { updated: req.params.id, mfaReset: p.mfaReset ?? false } });
       return updated;
     } catch (err) {
       return pgError(reply, err);

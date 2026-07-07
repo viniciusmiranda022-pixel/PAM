@@ -76,7 +76,8 @@ pam/
 | 3 | Segurança: token efêmero, allowlist, cofre Vault, rate limit, auditoria, TLS/WSS | ✅ ([`docs/phase3-security.md`](docs/phase3-security.md)) |
 | 4 | Operação: admin, sessões ativas, kill ao vivo, health, métricas, backup | ✅ ([`docs/phase4-operation.md`](docs/phase4-operation.md)) |
 | 5.1 | Gravação de sessão + playback no navegador | ✅ ([`docs/phase5-recording.md`](docs/phase5-recording.md)) |
-| 5.x | Avançado: MFA, SSO, aprovação, VeNCrypt | backlog |
+| 5.2 | MFA (TOTP, RFC 6238) com reset por admin | ✅ ([`docs/phase5-mfa.md`](docs/phase5-mfa.md)) |
+| 5.x | Avançado: SSO/OIDC, aprovação de acesso, VeNCrypt | backlog |
 
 Plano detalhado com critérios de aceite: [`docs/delivery-plan.md`](docs/delivery-plan.md).
 
