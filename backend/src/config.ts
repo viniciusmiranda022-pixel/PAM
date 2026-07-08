@@ -8,6 +8,24 @@ export interface Config {
   rateLimitLoginPerMin: number;
   rateLimitSessionPerMin: number;
   credentialProvider: "enc" | "vault";
+  /** Proxies confiaveis na frente do backend — ver parseTrustProxy. */
+  trustProxy: boolean | number | string;
+}
+
+/**
+ * TRUST_PROXY controla de onde vem o IP de auditoria (HR-10):
+ *   ausente/"false" -> false: ignora X-Forwarded-For; IP = socket (imune a spoof)
+ *   "1", "2", ...   -> confia nesse numero de hops (compose usa 1: o nginx,
+ *                      que SOBRESCREVE o X-Forwarded-For com $remote_addr)
+ *   "true"          -> confia em qualquer proxy — NAO usar em producao
+ *   outro valor     -> repassado ao Fastify (lista de IPs/CIDRs confiaveis)
+ */
+export function parseTrustProxy(value: string | undefined): boolean | number | string {
+  if (!value || value === "false") return false;
+  if (value === "true") return true;
+  const n = Number(value);
+  if (Number.isInteger(n) && n >= 0) return n;
+  return value;
 }
 
 export function loadConfig(env = process.env): Config {
@@ -27,5 +45,6 @@ export function loadConfig(env = process.env): Config {
     rateLimitLoginPerMin: Number(env.RATE_LIMIT_LOGIN_PER_MIN ?? 5),
     rateLimitSessionPerMin: Number(env.RATE_LIMIT_SESSION_PER_MIN ?? 10),
     credentialProvider: env.CREDENTIAL_PROVIDER === "vault" ? "vault" : "enc",
+    trustProxy: parseTrustProxy(env.TRUST_PROXY),
   };
 }

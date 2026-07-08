@@ -138,8 +138,8 @@ genérico. Antes da auditoria de cada função, ver [`function-audit.md`](functi
 
 | PR | Objetivo | Escopo | Status |
 |----|----------|--------|--------|
-| **PR-12** | Pivot documental | constituição, novos HR, ADR, auditoria função-por-função, VNC como 1º adapter | 🟢 este PR (docs-only) |
-| **PR-13** | Hardening & CI | IP de origem não-spoofável (nginx `$remote_addr`, `trustProxy` restrito), remover senhas do seed, CI mínimo (typecheck+test+scan de proxy-genérico/deps/segredos), versionar a suíte de integração, usuário DB runtime com privilégio mínimo, decisão de KDF (Argon2id×scrypt) em ADR | ⬜ |
+| **PR-12** | Pivot documental | constituição, novos HR, ADR, auditoria função-por-função, VNC como 1º adapter | ✅ mergeado |
+| **PR-13** | Hardening & CI | IP de origem não-spoofável (nginx `$remote_addr`, `trustProxy` restrito), remover senhas do seed, CI mínimo (typecheck+test+scan de proxy-genérico/deps/segredos), versionar a suíte de integração, usuário DB runtime com privilégio mínimo, decisão de KDF (scrypt, ADR 0002) | 🟢 este PR |
 | **PR-14** | UI enterprise | portal estilo Fluent; esconder função incompleta; nenhum botão morto | ⬜ |
 | **PR-15** | Auth enterprise | consolidar OIDC; ADFS via OIDC/SAML; LDAPS interno se necessário (nunca LDAP direto exposto à internet) | ⬜ |
 | **PR-16** | Abstração de protocolo | `protocol` no modelo de asset + **adapter registry**; VNC vira adapter oficial registrado. Sem novos protocolos ainda | ⬜ |

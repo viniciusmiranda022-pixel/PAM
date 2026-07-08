@@ -4,7 +4,7 @@ import { randomBytes, createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import type { Config } from "./config.js";
 import type { Db, UserRow } from "./db.js";
-import { hashPassword, verifyPassword } from "./auth.js";
+import { hashPassword, needsRehash, verifyPassword } from "./auth.js";
 import { storeCredential } from "./credential-store.js";
 import { decryptCredential, encryptCredential } from "./credentials.js";
 import { generateTotpSecret, otpauthUrl, verifyTotp } from "./totp.js";
@@ -46,15 +46,15 @@ function fail(reply: FastifyReply, status: number, code: string, message: string
   reply.code(status).send({ error: { code, message } });
 }
 
+// IP de auditoria (HR-10): req.ip ja respeita config.trustProxy — sem proxy
+// confiavel configurado, um X-Forwarded-For forjado pelo cliente e ignorado.
 function clientIp(req: FastifyRequest): string | null {
-  const fwd = req.headers["x-forwarded-for"];
-  if (typeof fwd === "string" && fwd.length > 0) return fwd.split(",")[0].trim();
   return req.ip ?? null;
 }
 
 export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableStream) {
   const app = Fastify({
-    trustProxy: true,
+    trustProxy: config.trustProxy,
     logger: {
       // HR-06: nenhum segredo em log. Redacao estrutural, nao por disciplina.
       redact: {
@@ -151,6 +151,10 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
       }
     }
     metrics.login("ok");
+    // ADR 0002: hash com parametros antigos e re-hasheado no login bem-sucedido.
+    if (user.passwordHash && needsRehash(user.passwordHash)) {
+      await db.setPasswordHash(user.id, hashPassword(password));
+    }
     setSession(reply, user.id);
     await db.audit("auth.login", { userId: user.id, sourceIp: clientIp(req) });
     return reply.code(204).send();

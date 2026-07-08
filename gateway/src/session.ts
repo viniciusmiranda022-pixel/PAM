@@ -38,9 +38,18 @@ function tokenFromSubprotocol(req: IncomingMessage): string | null {
   return null;
 }
 
+// IP da conexao (fallback de auditoria — o autoritativo e fixado pelo backend
+// na criacao da sessao). O X-Forwarded-For so e aceito com GATEWAY_TRUST_PROXY
+// (compose liga: o nginx sobrescreve o header com $remote_addr); e usa-se o
+// ULTIMO valor — o unico escrito por um proxy confiavel, nunca pelo cliente.
 function clientIp(req: IncomingMessage): string | null {
-  const fwd = req.headers["x-forwarded-for"];
-  if (typeof fwd === "string" && fwd.length > 0) return fwd.split(",")[0].trim();
+  if (process.env.GATEWAY_TRUST_PROXY === "true") {
+    const fwd = req.headers["x-forwarded-for"];
+    if (typeof fwd === "string" && fwd.length > 0) {
+      const parts = fwd.split(",");
+      return parts[parts.length - 1].trim();
+    }
+  }
   return req.socket.remoteAddress ?? null;
 }
 

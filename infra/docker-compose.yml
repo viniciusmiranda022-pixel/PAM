@@ -31,6 +31,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-pam}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no infra/.env}
       POSTGRES_DB: ${POSTGRES_DB:-pam}
+      # Opcional (PR-13): senha da role de runtime `pam_app` (privilegio minimo,
+      # auditoria append-only — 007-app-role.sh). Vazio = role nao criada.
+      PAM_APP_PASSWORD: ${PAM_APP_PASSWORD:-}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
@@ -78,6 +81,9 @@ services:
       # Producao: VENCRYPT_CA_FILE. Lab: VENCRYPT_INSECURE=true (autoassinado).
       VENCRYPT_INSECURE: ${VENCRYPT_INSECURE:-false}
       VENCRYPT_CA_FILE: ${VENCRYPT_CA_FILE:-}
+      # O gateway esta atras do nginx, que SOBRESCREVE o X-Forwarded-For com
+      # $remote_addr — por isso o header e confiavel aqui (HR-10 / PR-13).
+      GATEWAY_TRUST_PROXY: "true"
     volumes:
       - recordings:/recordings
     networks: [app_net, assets_net] # único serviço com pé nas duas redes
@@ -107,6 +113,14 @@ services:
       VAULT_KV_MOUNT: ${VAULT_KV_MOUNT:-secret}
       RATE_LIMIT_LOGIN_PER_MIN: ${RATE_LIMIT_LOGIN_PER_MIN:-5}
       RATE_LIMIT_SESSION_PER_MIN: ${RATE_LIMIT_SESSION_PER_MIN:-10}
+      # 1 = confia em exatamente 1 proxy (o nginx, que sobrescreve o
+      # X-Forwarded-For com $remote_addr). Fora do compose o default e "false"
+      # (ignora o header). Ver backend/src/config.ts::parseTrustProxy (HR-10).
+      TRUST_PROXY: "1"
+      # Senhas do seed de laboratorio — OBRIGATORIAS para rodar dist/seed.js
+      # (PR-13: o seed nao tem mais senha default e nao imprime senha).
+      SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
       # SSO/OIDC (Fase 5.5) — opcional. Definindo os 4 primeiros, o botao
       # "Entrar com SSO" aparece e o Authorization Code flow fica ativo.
       OIDC_ISSUER: ${OIDC_ISSUER:-}

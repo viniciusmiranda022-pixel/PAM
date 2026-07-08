@@ -28,16 +28,20 @@ isolada, IP fixo 172.28.0.10), `backend`, `gateway`, `frontend` e `nginx`
 
 ```bash
 cd infra
+# exige SEED_USER_PASSWORD e SEED_ADMIN_PASSWORD no .env (sem default!)
 docker compose --profile app run --rm backend node dist/seed.js
 ```
 
-Cria o usuário `poc` (senha `poc-pass`, ajustável por `SEED_USER_PASSWORD`), o
-grupo `vnc-ops`, o asset `lab-vnc` (172.28.0.10:5901) e a permissão do grupo.
+Cria os usuários `poc` e `admin` (senhas **obrigatórias** via
+`SEED_USER_PASSWORD`/`SEED_ADMIN_PASSWORD` no `.env` — o seed falha sem elas e
+não imprime senha), o grupo `vnc-ops`, o asset `lab-vnc` (172.28.0.10:5901) e a
+permissão do grupo.
 
 ## 4. Usar
 
 Abra `https://localhost` (aceite o certificado autoassinado), faça login com
-`poc` / `poc-pass`, clique no ativo `lab-vnc` e a sessão VNC abre no navegador.
+`poc` e a senha definida em `SEED_USER_PASSWORD`, clique no ativo `lab-vnc` e a
+sessão VNC abre no navegador.
 
 ## Isolamento de rede (HR-07)
 
@@ -52,16 +56,26 @@ docker compose --profile app exec backend sh -c "nc -z -w2 172.28.0.10 5901; ech
 docker compose --profile app exec gateway sh -c "nc -z -w2 172.28.0.10 5901; echo exit=$?"    # ok
 ```
 
-## Testes (rodam sem Docker)
+## Testes
+
+Unitários (sem Docker):
 
 ```bash
-cd gateway && npm ci && npm test      # RFB/DES + handshakes (16)
-cd backend && npm ci && npm test      # validacao estrita HR-01/02 (6)
+cd gateway && npm ci && npm test      # RFB/DES + handshakes
+cd backend && npm ci && npm test      # validacao estrita, KDF, trust-proxy, TOTP…
 ```
 
-Testes de integração e E2E que exercem o fluxo completo contra um Postgres real
-e um servidor RFB simulado estão descritos em
-[`phase1-poc.md`](phase1-poc.md#evidencia-de-verificacao).
+Integração + segurança (Postgres real; ver [`../tests/README.md`](../tests/README.md)):
+
+```bash
+(cd backend && npm run build) && (cd gateway && npm run build)   # a suite importa dist/
+cd tests && npm ci
+DATABASE_URL=... PAM_APP_URL=... PAM_APP_PASSWORD=... SCRYPT_N=16384 npm test
+```
+
+Tudo isso roda automaticamente no CI (`.github/workflows/ci.yml`) a cada push/PR,
+com um Postgres de service container. O CI também roda os scans de segredo e de
+dependência de proxy genérico e valida o `docker compose config`.
 
 ## TLS
 

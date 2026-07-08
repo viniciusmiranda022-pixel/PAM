@@ -26,7 +26,7 @@ pronto.
 
 | Área / Função | Componente | Status | Evidência atual | Ação recomendada |
 |---|---|---|---|---|
-| Login local (senha + cookie assinado) | `POST /auth/login` | FUNCIONA | Postgres real; cookie assinado | decidir KDF Argon2id×scrypt em ADR (PR-13) |
+| Login local (senha + cookie assinado) | `POST /auth/login` | FUNCIONA | Postgres real; cookie assinado; KDF scrypt (N=2^17) com rehash transparente | ✅ KDF decidido em [`adr/0002-kdf-scrypt.md`](adr/0002-kdf-scrypt.md) (PR-13) |
 | MFA TOTP (RFC 6238) | `/auth/mfa/*` | FUNCIONA | vetores oficiais do RFC | manter |
 | SSO / OIDC (Authorization Code, RS256/JWKS) | `/auth/oidc/*` | PARCIAL | RSA real + verificação de produção, mas só contra **IdP simulado** in-process | validar contra IdP real (Keycloak/Azure AD); consolidar (PR-15) |
 | LDAP / ADFS | — | AUSENTE | não existe | implementar via OIDC/SAML/LDAPS (PR-15) |
@@ -44,11 +44,12 @@ pronto.
 | Rate limit (login / criação de sessão) | backend | FUNCIONA | testado | manter (nota HA: store compartilhado p/ multi-instância) |
 | Health / métricas | backend + gateway | FUNCIONA | testado | manter |
 | Encerramento forçado (kill ao vivo, watchdog) | backend + gateway | FUNCIONA | derruba WebSocket ao vivo no teste | manter |
-| Auditoria de sessão/eventos | `audit_logs` | FUNCIONA na gravação, **mas IP de origem é spoofável** | XFF confiado sem restrição de proxy | corrigir XFF: nginx `$remote_addr` + `trustProxy` restrito (PR-13) |
-| Auditoria append-only (grants no banco) | `audit_logs` | PARCIAL | documentado como "app sem UPDATE/DELETE", **não aplicado** — app usa um único usuário DB | usuário DB de runtime com privilégio mínimo (PR-13) |
-| CI/CD | `.github/` | AUSENTE | não existe pipeline versionado | criar CI mínimo (PR-13) |
-| Suíte de testes de integração versionada | `tests/` | AUSENTE | só testes **unitários** estão no repo; a integração foi executada de forma descartável | versionar a suíte de integração (PR-13) |
-| "Build" do frontend | `frontend` | AUSENTE (é estático) | não há passo de build | CI usa `npm ci` + syntax-check, não `npm run build` |
+| Auditoria de sessão/eventos | `audit_logs` | FUNCIONA | ✅ IP não mais spoofável: nginx sobrescreve XFF com `$remote_addr`, `trustProxy` restrito, teste `tests/security/xff-spoof` prova | manter |
+| Auditoria append-only (grants no banco) | `audit_logs` | FUNCIONA (opt-in) | ✅ role `pam_app` de runtime: UPDATE/DELETE em `audit_logs` negados, provado em `tests/security/audit-append-only` | ativar em produção (`PAM_APP_PASSWORD` + `DATABASE_URL` da role) |
+| CI/CD | `.github/workflows/ci.yml` | FUNCIONA | ✅ typecheck+test+build (backend/gateway), syntax-check (frontend), integração c/ Postgres, scans, `compose config` (PR-13) | manter |
+| Suíte de testes de integração versionada | `tests/` | FUNCIONA | ✅ `tests/integration` + `tests/security` versionadas (14 casos) contra Postgres real (PR-13) | expandir por adapter |
+| "Build" do frontend | `frontend` | AUSENTE (é estático) | por design; CI faz `node --check` em `server.mjs`/`public/*.js` (não `npm run build`) | manter |
+| Seed com senha default em log | `backend/src/seed.ts` | FUNCIONA | ✅ senhas obrigatórias via env, sem default, sem senha no stdout (HR-06, PR-13) | manter |
 | Adapters RDP / SSH | — | AUSENTE | planejados | um adapter por PR (PR-17+), RDP antes de SSH |
 
 ## Conclusão
@@ -57,19 +58,21 @@ A **lógica é sólida e bem testada** contra fakes fiéis e Postgres real: crip
 conferida com vetores oficiais, fluxos de auth/sessão/admin exercitados de ponta a
 ponta em processo. **Nenhuma função é um mock que finge existir de forma enganosa.**
 
-O risco real é outro — **"parece pronto, mas não foi provado ponta-a-ponta"**:
+O risco real é outro — **"parece pronto, mas não foi provado ponta-a-ponta"**.
+Estado após o **PR-13 (hardening & CI)**:
 
-1. **Nada foi validado contra o mundo real:** nenhum TigerVNC/servidor VNC real,
-   nenhum navegador real, nenhum IdP/Vault real. Tudo contra fakes in-process
-   (fiéis, mas fakes).
-2. **A suíte de integração não está no repositório** — só os testes unitários estão
-   versionados; a integração rodou de forma descartável.
-3. **Não há CI** — nenhuma garantia automática contra regressão a cada mudança.
-4. **Há um defeito de segurança real:** o IP de origem na auditoria é spoofável via
-   `X-Forwarded-For` (o gateway/backend confia no header sem restringir o proxy).
-5. **Funções enterprise ausentes:** LDAP/ADFS e uma UI de nível corporativo não
-   existem.
+1. **Nada foi validado contra o mundo real** — ⏳ pendente: nenhum TigerVNC/servidor
+   VNC real, nenhum navegador real, nenhum IdP/Vault real. Tudo contra fakes
+   in-process (fiéis, mas fakes). Exige host com `docker pull` liberado.
+2. ~~A suíte de integração não está no repositório~~ — ✅ **resolvido (PR-13):**
+   `tests/integration` e `tests/security` versionadas (14 casos, Postgres real).
+3. ~~Não há CI~~ — ✅ **resolvido (PR-13):** `.github/workflows/ci.yml`.
+4. ~~IP de origem spoofável via `X-Forwarded-For`~~ — ✅ **resolvido (PR-13):**
+   nginx `$remote_addr` + `trustProxy` restrito, com teste dedicado.
+5. **Funções enterprise ausentes** — ⏳ pendente: LDAP/ADFS (PR-15) e uma UI de
+   nível corporativo (PR-14) ainda não existem.
 
-Esses cinco pontos são exatamente o conteúdo dos próximos PRs (PR-13 hardening/CI,
-PR-14 UI, PR-15 auth enterprise) antes de abrir novos protocolos por adapter
-(PR-16/PR-17+).
+Também no PR-13: senhas removidas do seed (sem default, sem log), role de banco
+com privilégio mínimo (auditoria append-only) e decisão de KDF em ADR. Restam os
+pontos 1 e 5, endereçados pelos PR-14/PR-15 e pelos smoke tests reais, antes de
+abrir novos protocolos por adapter (PR-16/PR-17+).

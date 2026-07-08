@@ -84,6 +84,14 @@ export class Db {
     return Db.mapUser(rows[0]);
   }
 
+  /** Re-hash transparente no login (ADR 0002) — nunca loga a senha. */
+  async setPasswordHash(userId: string, passwordHash: string): Promise<void> {
+    await this.pool.query(
+      "UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1",
+      [userId, passwordHash],
+    );
+  }
+
   async findUserByEmail(email: string): Promise<UserRow | null> {
     const { rows } = await this.pool.query(
       `SELECT id, username, display_name, role, password_hash, status, mfa_enabled, mfa_secret

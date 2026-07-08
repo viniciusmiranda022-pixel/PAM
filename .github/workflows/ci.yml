@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# Nota de governanca: o branch default do repositorio deve ser `main` (definido
+# manualmente em Settings > Branches). Este workflow roda em todo push/PR.
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pam
+          POSTGRES_PASSWORD: pam
+          POSTGRES_DB: pam
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pam -d pam"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      # KDF barato no CI (ADR 0002 permite; nunca em producao).
+      SCRYPT_N: "16384"
+      DATABASE_URL: postgres://pam:pam@localhost:5432/pam
+      PAM_APP_URL: postgres://pam_app:apppw@localhost:5432/pam
+      PAM_APP_PASSWORD: apppw
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # ── Barreiras de escopo (rapidas, antes de instalar) ──────────────────
+      - name: Scan de segredos (HR-06)
+        run: bash scripts/ci/scan-secrets.sh
+      - name: Scan de dependencia de proxy generico (HR-08/HR-09)
+        run: bash scripts/ci/scan-forbidden-deps.sh
+
+      # ── Backend ───────────────────────────────────────────────────────────
+      - name: Backend — install
+        working-directory: backend
+        run: npm ci
+      - name: Backend — typecheck
+        working-directory: backend
+        run: npm run typecheck
+      - name: Backend — unit tests
+        working-directory: backend
+        run: npm test
+      - name: Backend — build
+        working-directory: backend
+        run: npm run build
+
+      # ── Gateway ───────────────────────────────────────────────────────────
+      - name: Gateway — install
+        working-directory: gateway
+        run: npm ci
+      - name: Gateway — typecheck
+        working-directory: gateway
+        run: npm run typecheck
+      - name: Gateway — unit tests
+        working-directory: gateway
+        run: npm test
+      - name: Gateway — build
+        working-directory: gateway
+        run: npm run build
+
+      # ── Frontend (estatico: sem build; so checagem de sintaxe) ─────────────
+      - name: Frontend — install
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend — syntax check
+        working-directory: frontend
+        run: |
+          node --check server.mjs
+          for f in public/*.js; do node --check "$f"; done
+
+      # ── Suite transversal: integracao + seguranca (Postgres real) ─────────
+      # Importa o build de backend/gateway (feito acima) e sobe o schema +
+      # role pam_app a partir de um Postgres vazio (helper faz o bootstrap).
+      - name: Tests — install
+        working-directory: tests
+        run: npm ci
+      - name: Tests — integração + segurança
+        working-directory: tests
+        run: npm test
+
+      # ── Validacao do Compose (sintaxe/interpolacao) ───────────────────────
+      - name: Docker Compose — validar
+        working-directory: infra
+        env:
+          POSTGRES_PASSWORD: ci-dummy
+          COOKIE_SECRET: ci-dummy-cookie-secret-32bytes!!
+          CREDENTIAL_MASTER_KEY: ci-dummy-master-key-base64==
+        run: docker compose -f docker-compose.yml config -q
