@@ -1,0 +1,18 @@
+{
+  "name": "pam-tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Suites transversais de integracao e seguranca (PR-13). Rodam contra Postgres real; importam o build de backend/gateway (dist).",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "@types/pg": "^8.11.10",
+    "pg": "^8.12.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

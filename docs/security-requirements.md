@@ -72,10 +72,12 @@ cru. Toda alteração da allowlist gera auditoria (`allowlist.changed`).
 | Transporte do token | via subprotocolo WebSocket (`Sec-WebSocket-Protocol`); ver `api-contract.md` §4 — nunca em query string, para não vazar em access log |
 | Expiração de sessão de login | 8h absoluta / 30min inatividade (configurável) |
 
-> **Nota de KDF:** o hash de senha local usa um KDF resistente a GPU. A escolha
-> definitiva entre **Argon2id** e **scrypt** (com dependências e parâmetros) será
-> registrada em ADR próprio no hardening (PR-13). Ambos são aceitáveis; o
-> requisito é que **nunca** se use hash rápido (MD5/SHA sem stretching).
+> **Nota de KDF:** o hash de senha local usa **scrypt** (`node:crypto`, N=2^17,
+> r=8, p=1 ≈ 128 MiB), com formato auto-descritivo e **rehash transparente** no
+> login quando os parâmetros são elevados. Decisão registrada em
+> [`adr/0002-kdf-scrypt.md`](adr/0002-kdf-scrypt.md) (Argon2id avaliado e
+> rejeitado por exigir dependência nativa). Hash rápido (MD5/SHA sem stretching)
+> **nunca** é aceitável.
 
 ## 4. Cofre de credenciais
 
