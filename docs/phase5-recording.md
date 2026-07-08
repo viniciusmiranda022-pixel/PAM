@@ -2,7 +2,7 @@
 
 Primeiro recurso avançado (a ordem que o brief define: administração → gravação →
 SSO/MFA). O gateway grava a tela de cada sessão VNC; o admin assiste depois no
-navegador. Mantém o escopo VNC-only e as garantias das fases anteriores.
+navegador. Mantém o escopo do adapter VNC e as garantias das fases anteriores.
 
 ## O que foi construído
 

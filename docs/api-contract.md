@@ -163,7 +163,9 @@ GET /metrics            (Prometheus; rede interna apenas — Fase 4)
 
 ## 7. O que este contrato **não** tem (por design)
 
-- Nenhum endpoint aceita `host`, `hostname`, `ip` ou `port` vindos de usuário
-  comum (somente admin no CRUD de assets).
+- Nenhum endpoint aceita `host`, `hostname`, `ip`, `port` ou `protocol` vindos de
+  usuário comum (somente admin no CRUD de assets).
 - Nenhum endpoint retorna credencial, nem mascarada.
-- Nenhum endpoint de conexão para protocolos que não sejam VNC/RFB.
+- Nenhum endpoint de conexão a um destino sem passar por um **adapter de protocolo**
+  (hoje, o adapter VNC/RFB). Novos protocolos entram por adapter, nunca por proxy
+  genérico (HR-09).

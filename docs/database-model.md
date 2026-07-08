@@ -61,7 +61,11 @@ users ──< user_groups >── groups
 
 ## 5. O que **não** existe neste banco (por design)
 
-- Nenhuma coluna de senha VNC — apenas `credential_ref` apontando para o cofre.
+- Nenhuma coluna de credencial do asset — apenas `credential_ref` apontando para o cofre.
 - Nenhum token em claro — apenas hash.
-- Nenhuma tabela/coluna para outros protocolos (`protocol` não existe: o sistema
-  é VNC-only; adicionar essa coluna é sinal de desvio de escopo).
+- Nenhuma coluna de destino técnico (IP/host/porta/URL/comando) informável pelo
+  usuário — o destino é sempre resolvido pelo backend a partir do asset (HR-01/HR-03).
+- Coluna `protocol` no asset: **planejada** para o modelo de adapters (PR-16 — ver
+  [`adr/0001-pivot-multiprotocolo.md`](adr/0001-pivot-multiprotocolo.md)). Hoje há um
+  único protocolo (VNC), então ela ainda não existe; quando entrar, o valor é
+  resolvido pelo backend e nunca informado pelo usuário.

@@ -1,18 +1,22 @@
-# Arquitetura — VNC Privileged Access Gateway
+# Arquitetura — PAM Access Gateway
 
 ## 1. Visão geral
 
-O sistema é um **gateway de acesso privilegiado exclusivo para VNC**. Toda a
-superfície exposta ao usuário é HTTPS/WSS na porta 443. O único componente com
-rota de rede até os assets é o **gateway**, e ele só abre conexões TCP para
-`(ip, porta)` de assets cadastrados, com porta em allowlist e sessão válida.
+O sistema é um **gateway de acesso privilegiado multiprotocolo**. Toda a superfície
+exposta ao usuário é HTTPS/WSS na porta 443. O único componente com rota de rede
+até os assets é o **gateway**, e ele só abre conexões para `(protocolo, ip, porta)`
+de assets cadastrados, com porta em allowlist do protocolo e sessão válida.
+
+O acesso a cada protocolo é feito por um **adapter explícito** (Protocol Adapter).
+O **VNC (RFB) é o adapter de referência, já implementado**. Novos protocolos
+(RDP, SSH…) entram como novos adapters, um por vez — nunca como proxy genérico.
 
 ```text
                           ZONA DO USUÁRIO
 ┌─────────────────────────────────────────────────────────────┐
 │  Navegador (HTTPS 443)                                      │
 │  ├── Portal web (login, lista de assets)                    │
-│  └── noVNC (cliente VNC em JS, fala RFB sobre WebSocket)    │
+│  └── Cliente de sessão (ex.: noVNC p/ o adapter VNC)        │
 └────────────────────────────┬────────────────────────────────┘
                              │ HTTPS / WSS (443)
                           ZONA DE APLICAÇÃO (rede app_net)
@@ -20,22 +24,25 @@ rota de rede até os assets é o **gateway**, e ele só abre conexões TCP para
 │  Reverse Proxy (Nginx)                                      │
 │  ├── /            → Frontend (estático)                     │
 │  ├── /api/*       → Backend API                             │
-│  └── /gateway/*   → VNC Gateway (upgrade WebSocket)         │
+│  └── /gateway/*   → Gateway (upgrade WebSocket)             │
 ├─────────────────────────────────────────────────────────────┤
 │  Backend API + Session Broker                               │
 │  • autenticação, autorização, assets, permissões            │
+│  • resolve protocolo + destino + credencial + política      │
 │  • criação/validação/encerramento de sessão                 │
 │  • emissão de token efêmero (uso único, TTL curto)          │
 │  • auditoria                                                │
 ├──────────────┬─────────────────────────┬────────────────────┤
-│  PostgreSQL  │  Cofre de credenciais   │  VNC Gateway       │
-│  (estado +   │  (senha VNC dos assets, │  (WS → TCP,        │
-│   auditoria) │   nunca vai ao browser) │   terminação RFB)  │
+│  PostgreSQL  │  Cofre de credenciais   │  Protocol Gateway  │
+│  (estado +   │  (credencial dos assets,│  Layer             │
+│   auditoria) │   nunca vai ao browser) │  ├─ adapter VNC ✅  │
+│              │                         │  ├─ adapter RDP 🔜  │
+│              │                         │  └─ adapter SSH 🔜  │
 └──────────────┴─────────────────────────┴─────────┬──────────┘
-                                                   │ TCP 5900/5901/…
+                                                   │ TCP (porta do protocolo)
                           ZONA DE ASSETS (rede assets_net — isolada)
 ┌──────────────────────────────────────────────────▼──────────┐
-│  Assets com VNC Server (somente o gateway tem rota até aqui)│
+│  Assets (somente o gateway tem rota até aqui)               │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -43,18 +50,20 @@ rota de rede até os assets é o **gateway**, e ele só abre conexões TCP para
 
 | Componente | Responsabilidade | Diretório |
 |---|---|---|
-| **Frontend Web** | Login, lista de assets autorizados, tela da sessão com noVNC | `frontend/` |
-| **noVNC** | Cliente VNC no navegador (RFB sobre WebSocket) | dependência do frontend |
+| **Frontend Web** | Login, lista de assets autorizados, tela da sessão com o cliente do protocolo | `frontend/` |
+| **Cliente de sessão** | Cliente do protocolo no navegador (ex.: noVNC/RFB sobre WebSocket para o adapter VNC) | dependência do frontend |
 | **Backend API** | Usuários, grupos, permissões, assets, sessões, auditoria | `backend/` |
-| **Session Broker** | Módulo do backend: cria/valida/encerra sessão, emite token efêmero | `backend/` |
-| **VNC Gateway** | Ponte WebSocket ↔ TCP; terminação do handshake RFB; injeção de credencial | `gateway/` |
+| **Session Broker** | Módulo do backend: resolve protocolo/destino/credencial, cria/valida/encerra sessão, emite token efêmero | `backend/` |
+| **Protocol Gateway Layer** | Camada comum do gateway: upgrade WebSocket, consumo de token, ciclo de vida, gravação, seleção do adapter | `gateway/` |
+| **Protocol Adapter** | Fala **um** protocolo dos dois lados (terminação de handshake), injeta credencial no lado do asset | `gateway/src/` (VNC hoje; futuros em `adapters/{rdp,ssh}`) |
 | **PostgreSQL** | Assets, usuários, permissões, sessões, allowlist, logs de auditoria | `infra/postgres/` |
-| **Cofre (Vault)** | Senha VNC dos assets — write-only pela API, lida só pelo gateway/broker | `infra/vault/` |
+| **Cofre (Vault)** | Credencial dos assets — write-only pela API, lida só pelo gateway/broker | `infra/vault/` |
 | **Reverse Proxy** | TLS, WSS, headers de segurança, rate limit de borda | `infra/nginx/` |
 
 Backend e gateway são **processos separados** desde o início. O gateway é o
 componente mais sensível e deve ter superfície mínima: sem framework HTTP além do
-upgrade de WebSocket, sem dependência de bibliotecas de outros protocolos (HR-09).
+upgrade de WebSocket, e cada adapter carrega apenas o necessário para falar o seu
+protocolo (HR-09).
 
 ## 3. Zonas de rede
 
@@ -62,37 +71,41 @@ upgrade de WebSocket, sem dependência de bibliotecas de outros protocolos (HR-0
 |---|---|---|
 | pública (443) | usuário → nginx | única porta exposta |
 | `app_net` | nginx, frontend, backend, gateway, postgres, vault | tráfego interno da aplicação |
-| `assets_net` | **somente gateway** e assets VNC | usuário e backend não têm rota (HR-07) |
+| `assets_net` | **somente gateway** e assets | usuário e backend não têm rota (HR-07) |
 
 Em produção, `assets_net` corresponde à VLAN/segmento onde vivem os assets; a
-regra permanece: firewall permite `gateway → assets:portas da allowlist` e nada
-mais. O Docker Compose local já modela essa separação com duas redes.
+regra permanece: firewall permite `gateway → assets:portas da allowlist do
+protocolo` e nada mais. O Docker Compose local já modela essa separação com duas
+redes.
 
-## 4. Decisão de arquitetura: terminação do handshake RFB no gateway
+## 4. Decisão de arquitetura: terminação de handshake no adapter
 
 **Problema:** se o gateway fosse um túnel byte-a-byte puro (estilo websockify), o
-noVNC no navegador faria o handshake de segurança RFB — e precisaria da senha do
-asset, violando HR-05.
+cliente no navegador faria o handshake de segurança do protocolo — e precisaria da
+credencial do asset, violando HR-05.
 
-**Decisão:** o gateway **termina o handshake RFB dos dois lados** e depois faz
-splice dos streams:
+**Decisão (regra de todo adapter):** o adapter **termina o handshake do protocolo
+dos dois lados** e só depois faz splice dos streams. Isso vale para todo protocolo;
+o adapter VNC é a materialização de referência:
 
-- **Lado navegador:** o gateway negocia RFB com security type `None`. A
+- **Lado navegador:** o adapter VNC negocia RFB com security type `None`. A
   autenticação do usuário já aconteceu na camada acima (login + token efêmero
-  validado no upgrade do WebSocket). Nenhuma senha trafega até o browser.
-- **Lado asset:** o gateway executa a autenticação `VNC Authentication`
-  (challenge-response DES) usando a senha obtida do cofre.
-- Após o `ServerInit`, o gateway vira um pipe binário transparente entre os dois
-  lados.
+  validado no upgrade do WebSocket). Nenhuma credencial trafega até o browser.
+- **Lado asset:** o adapter VNC executa a autenticação `VNC Authentication`
+  (challenge-response DES) usando a credencial obtida do cofre. Quando o asset
+  exige, o trecho é cifrado com VeNCrypt (TLS) antes da autenticação.
+- Após o `ServerInit`, o adapter vira um pipe binário transparente entre os lados.
 
-Escopo inicial de protocolo: **RFB 3.8** com security types `None` e
-`VNC Authentication (2)`. Outros tipos (Tight, VeNCrypt, RA2…) ficam fora do MVP
-e documentados como limitação (ver riscos).
+Escopo do adapter VNC: **RFB 3.8** com security types `None`, `VNC Authentication
+(2)` e VeNCrypt (subtypes X509). Outros security types RFB (Tight, RA2…) ficam
+fora do escopo e são documentados como limitação (ver riscos).
 
-**Validação de banner:** ao abrir o TCP com o asset, o gateway exige que os 12
-primeiros bytes sejam `RFB xxx.yyy\n`. Se o destino não fala RFB, a conexão é
-encerrada e auditada. Isso impede que o gateway seja usado para alcançar serviços
-não-VNC mesmo em porta permitida (defesa extra para HR-08).
+**Validação de handshake:** ao abrir o TCP com o asset, o adapter exige que o
+destino realmente fale o protocolo esperado (o adapter VNC exige que os 12
+primeiros bytes sejam `RFB xxx.yyy\n`). Se o destino não fala o protocolo, a
+conexão é encerrada e auditada. Isso impede que o gateway seja usado para alcançar
+serviços diferentes mesmo em porta permitida (defesa extra para HR-08). **Cada
+novo adapter deve implementar a validação equivalente para o seu protocolo.**
 
 ## 5. Token efêmero de sessão
 
@@ -108,38 +121,43 @@ não-VNC mesmo em porta permitida (defesa extra para HR-08).
 O token **não é JWT**: sendo opaco e validado contra o banco, é revogável e o
 uso único é garantido por transação (`UPDATE ... WHERE token_used_at IS NULL`).
 
-## 6. Stack tecnológica sugerida
+## 6. Stack tecnológica
 
 | Camada | Tecnologia | Justificativa |
 |---|---|---|
 | Linguagem | **TypeScript / Node.js 22 LTS** em todo o projeto | um só toolchain; WebSocket↔TCP é caso natural do Node (streams) |
 | Backend API | **Fastify** + **Zod** | leve, schema-first, validação estrita de entrada (rejeita campos extras como `host`/`port`) |
-| ORM/Migrations | **Drizzle ORM** + SQL puro para constraints | schema versionado; invariantes críticas ficam em DDL |
-| Gateway | **Node + `ws`** apenas; módulo RFB próprio | superfície mínima; handshake RFB 3.8 é um state machine pequeno |
-| Frontend | **React + Vite + `@novnc/novnc`** | noVNC é o cliente VNC web de referência |
-| Banco | **PostgreSQL 16** | constraints declarativas (allowlist via FK), JSONB para auditoria |
-| Cofre | **HashiCorp Vault** (KV v2 + AppRole) na Fase 3; interino: AES-256-GCM com master key fora do banco | caminho incremental sem expor senha em nenhuma fase |
+| Persistência | **PostgreSQL 16** + SQL puro para constraints | schema versionado por migrações; invariantes críticas ficam em DDL |
+| Gateway | **Node + `ws`**; adapter de protocolo próprio por protocolo | superfície mínima; o handshake é uma state machine pequena por protocolo |
+| Frontend | estático + cliente do protocolo (**`@novnc/novnc`** para o adapter VNC) | noVNC é o cliente VNC web de referência |
+| Cofre | **HashiCorp Vault** (KV v2 + AppRole); interino: AES-256-GCM com master key fora do banco | caminho incremental sem expor credencial em nenhuma fase |
 | Reverse proxy | **Nginx** | TLS/WSS, headers, rate limit |
-| Senhas de usuário | **Argon2id** | estado da arte para hash de senha |
+| Senhas de usuário | KDF forte (**Argon2id** ou **scrypt** — decisão em ADR no PR-13) | estado da arte para hash de senha |
 | Logs | **pino** com `redact` configurado | redação estrutural de segredos (HR-06) — não depende de disciplina do dev |
-| Métricas | **prom-client** (formato Prometheus) | Fase 4 |
+| Métricas | **prom-client** (formato Prometheus) | operação |
 | Testes | **Vitest** (unit/integration), **Playwright** (e2e) | inclui suíte de testes de segurança automatizada |
 
-Alternativa avaliada: gateway em **Go** (excelente para proxies TCP). Descartada
-no início para manter um único toolchain; a separação em processo/diretório
-próprio permite reescrever o gateway em Go depois sem tocar no resto.
+Alternativa avaliada: gateway/adapters em **Go** (excelente para proxies TCP e para
+falar protocolos binários). Mantido em Node no início para um único toolchain; a
+separação em processo e por adapter permite reescrever um adapter específico em
+outra linguagem depois sem tocar no resto. A **engine de cada novo protocolo**
+(implementação própria vs. reuso de um engine externo como `guacd`) é decidida por
+adapter, com PoC — ver [`adr/0001-pivot-multiprotocolo.md`](adr/0001-pivot-multiprotocolo.md).
 
-## 7. O que é proibido implementar (escopo travado)
+## 7. Regras de escopo (o que continua proibido)
 
 ```text
-RDP · SSH · Telnet · SQL · SFTP · VPN · shell remoto · HTTP proxy genérico
-qualquer campo de host/porta digitado pelo usuário
-qualquer biblioteca cliente de outros protocolos no lockfile
+proxy TCP genérico ou encaminhamento de porta arbitrária
+qualquer campo de host/porta/URL/comando digitado pelo usuário
+qualquer protocolo atendido sem adapter que termine o handshake
+credencial do asset trafegando até o navegador
 ```
 
-CI da Fase 1+ inclui verificação automática: falha se o lockfile contiver
-bibliotecas de RDP/SSH/etc. ou se a API aceitar `host`/`port` no start de sessão
-(teste de contrato).
+Novos protocolos são **bem-vindos**, mas exclusivamente por **adapter explícito**
+(HR-09), com threat model, terminação de handshake, validação, gravação, auditoria
+e testes próprios. A CI verifica automaticamente: falha se a API aceitar
+`host`/`port`/`protocol` no start de sessão (teste de contrato) ou se um caminho de
+dados encaminhar bytes a um destino sem passar por um adapter registrado.
 
 ## 8. Escalabilidade (nota para depois do MVP)
 
