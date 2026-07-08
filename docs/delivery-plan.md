@@ -4,6 +4,13 @@ Regra de aceite global: a pergunta nunca é "funcionou?", é **"funcionou sem
 violar a arquitetura?"** — usar o checklist de
 [`security-requirements.md`](security-requirements.md) §8 em toda revisão.
 
+> **Contexto do pivot:** as Fases 0–5.5 abaixo entregaram o **adapter VNC** e a
+> **plataforma comum** (auth, sessão, token, cofre, auditoria, operação). O produto
+> passou a ser multiprotocolo por adapter (ver
+> [`adr/0001-pivot-multiprotocolo.md`](adr/0001-pivot-multiprotocolo.md)); a
+> continuação está no **Roadmap multiprotocolo (PR-12+)** ao fim deste documento.
+> Onde se lê "VNC-only" nas fases históricas, entenda "o adapter VNC".
+
 ## Fase 0 — Desenho técnico ✅ (este pacote)
 
 Entregáveis: arquitetura, contrato de API, modelo de banco, requisitos de
@@ -121,6 +128,34 @@ trecho gateway→asset.
   flow, verificação RS256 do id_token via JWKS (node:crypto), provisionamento e
   vínculo por email, `state`/`nonce`. Verificado (integração 12 com IdP simulado
   e RSA real). **Os três avançados escolhidos estão entregues.**
+
+## Roadmap multiprotocolo (PR-12+)
+
+Com a plataforma comum e o adapter VNC prontos, o produto pivota para
+**PAM Access Gateway** multiprotocolo. Cada item é um PR próprio; novos protocolos
+entram **um por vez, sempre por adapter explícito** (HR-09), nunca por proxy
+genérico. Antes da auditoria de cada função, ver [`function-audit.md`](function-audit.md).
+
+| PR | Objetivo | Escopo | Status |
+|----|----------|--------|--------|
+| **PR-12** | Pivot documental | constituição, novos HR, ADR, auditoria função-por-função, VNC como 1º adapter | 🟢 este PR (docs-only) |
+| **PR-13** | Hardening & CI | IP de origem não-spoofável (nginx `$remote_addr`, `trustProxy` restrito), remover senhas do seed, CI mínimo (typecheck+test+scan de proxy-genérico/deps/segredos), versionar a suíte de integração, usuário DB runtime com privilégio mínimo, decisão de KDF (Argon2id×scrypt) em ADR | ⬜ |
+| **PR-14** | UI enterprise | portal estilo Fluent; esconder função incompleta; nenhum botão morto | ⬜ |
+| **PR-15** | Auth enterprise | consolidar OIDC; ADFS via OIDC/SAML; LDAPS interno se necessário (nunca LDAP direto exposto à internet) | ⬜ |
+| **PR-16** | Abstração de protocolo | `protocol` no modelo de asset + **adapter registry**; VNC vira adapter oficial registrado. Sem novos protocolos ainda | ⬜ |
+| **PR-17+** | Novos adapters | um adapter por PR — **RDP primeiro, SSH depois** — cada um com threat model, contrato, terminação de handshake, gravação, auditoria e testes próprios | ⬜ |
+
+Critérios de aceite de um **novo adapter** (PR-17+):
+
+```text
+[ ] Termina o handshake do protocolo dos dois lados (nunca túnel byte-a-byte)
+[ ] Nenhuma credencial trafega ao navegador (HR-05) — provado por teste
+[ ] Valida que o destino realmente fala o protocolo esperado (HR-08)
+[ ] Allowlist de portas específica do protocolo (HR-04)
+[ ] Auditoria registra o protocolo em toda sessão (HR-10)
+[ ] Gravação/observabilidade equivalente à do adapter VNC, quando aplicável
+[ ] Threat model próprio + testes unit/integração/segurança
+```
 
 ## Épicos (backlog)
 
