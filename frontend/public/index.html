@@ -3,46 +3,51 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PAM VNC-Only</title>
+    <title>PAM Access Gateway</title>
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
     <header>
-      <h1>PAM VNC-Only <small>Privileged Access Gateway</small></h1>
-      <span><a href="/admin" id="admin-link" class="link" hidden>Administração</a> <span id="who"></span></span>
+      <h1>PAM Access Gateway <small>Acesso privilegiado</small></h1>
+      <span class="topbar-right">
+        <a href="/admin" id="admin-link" class="link" hidden>Administração</a>
+        <span id="who"></span>
+      </span>
     </header>
 
     <!-- Login -->
     <section id="login-view">
-      <h2>Entrar</h2>
-      <form id="login-form">
-        <label>Usuário <input id="username" autocomplete="username" required /></label>
-        <label>Senha <input id="password" type="password" autocomplete="current-password" required /></label>
-        <label id="totp-label" hidden>Código do autenticador (MFA)
-          <input id="totp" inputmode="numeric" pattern="\d{6}" maxlength="6" autocomplete="one-time-code" placeholder="000000" />
-        </label>
-        <button type="submit">Entrar</button>
-      </form>
-      <button id="sso-btn" hidden>Entrar com SSO</button>
-      <p class="error" id="login-error"></p>
+      <div class="card">
+        <h2>Entrar</h2>
+        <form id="login-form">
+          <label>Usuário <input id="username" autocomplete="username" required /></label>
+          <label>Senha <input id="password" type="password" autocomplete="current-password" required /></label>
+          <label id="totp-label" hidden>Código do autenticador (MFA)
+            <input id="totp" inputmode="numeric" pattern="\d{6}" maxlength="6" autocomplete="one-time-code" placeholder="000000" />
+          </label>
+          <button type="submit">Entrar</button>
+        </form>
+        <button id="sso-btn" hidden>Entrar com SSO</button>
+        <p class="error" id="login-error"></p>
+      </div>
     </section>
 
-    <!-- Lista de assets autorizados. NAO ha campo de IP/host/porta (HR-01). -->
+    <!-- Ativos autorizados. NAO ha campo de IP/host/porta (HR-01), nem
+         credencial (HR-05): o usuario comum so ve o ativo, nunca o destino. -->
     <section id="assets-view" hidden>
-      <h2>Ativos VNC autorizados</h2>
+      <h2 class="page-title">Ativos autorizados</h2>
       <ul id="assets-list"></ul>
-      <button id="logout">Sair</button>
       <p class="error" id="assets-error"></p>
 
-      <details id="catalog-box">
+      <details id="catalog-box" class="card">
         <summary>Solicitar acesso (catálogo)</summary>
         <ul id="catalog-list"></ul>
-        <h3>Minhas solicitações</h3>
+        <h3 class="muted" style="margin-top:1rem">Minhas solicitações</h3>
         <ul id="requests-list"></ul>
         <p class="error" id="catalog-error"></p>
       </details>
 
-      <details id="mfa-box">
+      <details id="mfa-box" class="card">
         <summary>Segurança da conta (MFA)</summary>
         <div id="mfa-off">
           <p class="muted">Proteja seu login com um código de autenticador (TOTP).</p>
@@ -58,13 +63,15 @@
         <div id="mfa-on" hidden>
           <p>MFA está <strong>ativo</strong>. Para desativar, informe um código válido:</p>
           <input id="mfa-code-off" inputmode="numeric" maxlength="6" placeholder="000000" />
-          <button id="mfa-disable">Desativar MFA</button>
+          <button id="mfa-disable" class="subtle">Desativar MFA</button>
         </div>
         <p class="error" id="mfa-error"></p>
       </details>
+
+      <p style="margin-top:1.25rem"><button id="logout" class="subtle">Sair</button></p>
     </section>
 
-    <!-- Sessao VNC -->
+    <!-- Sessao -->
     <section id="session-view" hidden>
       <div class="session-bar">
         <span id="session-status">conectando…</span>

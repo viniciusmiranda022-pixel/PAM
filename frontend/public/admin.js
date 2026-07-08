@@ -4,6 +4,13 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const err = (m) => { $("#err").textContent = m || ""; };
 
+// Pill de status. `kind` mapeia para a cor (ver .pill.* no style.css); valores
+// vem de enums controlados (status de asset/usuario/sessao/solicitacao).
+const PILL_KIND = { active: "active", inactive: "inactive", pending: "pending",
+  approved: "approved", denied: "denied", closed: "ok", terminated: "bad",
+  failed: "failed" };
+const pill = (v) => `<span class="pill ${PILL_KIND[v] ?? ""}">${v ?? ""}</span>`;
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     ...options,
@@ -19,7 +26,7 @@ async function getJson(path) {
 
 // Renderiza uma lista de objetos como tabela, com botão opcional de ação.
 function table(el, rows, columns, action) {
-  if (rows.length === 0) { el.innerHTML = '<p class="muted">vazio</p>'; return; }
+  if (rows.length === 0) { el.innerHTML = '<div class="empty">Nenhum registro.</div>'; return; }
   const head = columns.map((c) => `<th>${c.label}</th>`).join("") + (action ? "<th></th>" : "");
   const body = rows.map((row) => {
     const tds = columns.map((c) => `<td>${c.get(row) ?? ""}</td>`).join("");
@@ -39,7 +46,7 @@ async function loadAssets() {
     { label: "Ambiente", get: (a) => a.environment },
     { label: "IP", get: (a) => a.ip_address },
     { label: "Porta", get: (a) => a.port },
-    { label: "Status", get: (a) => a.status },
+    { label: "Status", get: (a) => pill(a.status) },
   ], { name: "del", label: "Remover", idKey: "id", run: async (id) => {
     if (await api(`/api/v1/admin/assets/${id}`, { method: "DELETE" }).then((r) => r.ok)) refreshAll();
   }});
@@ -52,8 +59,8 @@ async function loadUsers() {
     { label: "Usuário", get: (u) => u.username },
     { label: "Nome", get: (u) => u.display_name },
     { label: "Perfil", get: (u) => u.role },
-    { label: "Status", get: (u) => u.status },
-    { label: "MFA", get: (u) => (u.mfa_enabled ? "ativo" : "—") },
+    { label: "Status", get: (u) => pill(u.status) },
+    { label: "MFA", get: (u) => (u.mfa_enabled ? '<span class="pill ok">ativo</span>' : "—") },
   ], { name: "mfa-reset", label: "Resetar MFA", idKey: "id", run: async (id) => {
     const r = await api(`/api/v1/admin/users/${id}`, { method: "PATCH", body: JSON.stringify({ mfaReset: true }) });
     if (r.ok) loadUsers(); else err("falha ao resetar MFA");
@@ -85,9 +92,9 @@ async function loadPermissions() {
 async function loadAccess() {
   const items = await getJson("/api/v1/admin/access-requests");
   const el = $('[data-list="access"]');
-  if (items.length === 0) { el.innerHTML = '<p class="muted">nenhuma solicitação</p>'; return; }
+  if (items.length === 0) { el.innerHTML = '<div class="empty">Nenhuma solicitação.</div>'; return; }
   el.innerHTML = `<table><thead><tr><th>Usuário</th><th>Ativo</th><th>Justificativa</th><th>Status</th><th></th></tr></thead><tbody>${
-    items.map((r) => `<tr><td>${r.username}</td><td>${r.asset_name}</td><td>${r.justification}</td><td>${r.status}</td><td>${
+    items.map((r) => `<tr><td>${r.username}</td><td>${r.asset_name}</td><td>${r.justification}</td><td>${pill(r.status)}</td><td>${
       r.status === "pending" ? `<button data-approve="${r.id}">Aprovar</button> <button data-deny="${r.id}">Negar</button>` : ""
     }</td></tr>`).join("")
   }</tbody></table>`;
@@ -120,7 +127,7 @@ async function loadSessions() {
   table($('[data-list="sessions"]'), sessions, [
     { label: "Usuário", get: (s) => s.username },
     { label: "Ativo", get: (s) => s.asset_name },
-    { label: "Status", get: (s) => s.status },
+    { label: "Status", get: (s) => pill(s.status) },
     { label: "Origem", get: (s) => s.client_ip ?? "" },
     { label: "Início", get: (s) => s.started_at ?? "" },
     { label: "Gravação", get: (s) => s.has_recording ? `<a class="link" target="_blank" href="/replay?sessionId=${s.id}">assistir</a>` : "" },

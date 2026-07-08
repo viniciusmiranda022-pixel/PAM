@@ -32,20 +32,41 @@ async function refreshAssets() {
   const list = $("assets-list");
   list.innerHTML = "";
   if (items.length === 0) {
-    list.innerHTML = "<li>Nenhum ativo autorizado.</li>";
+    list.innerHTML = '<li><div class="empty">Nenhum ativo autorizado.</div></li>';
   }
   for (const a of items) {
+    // Cartao do ativo: nome + ambiente + affordance "Conectar". Sem IP, porta,
+    // credencial ou token — o usuario comum nunca ve o destino tecnico (HR-01/05).
     const li = document.createElement("li");
-    const btn = document.createElement("button");
-    btn.textContent = `${a.name} — ${a.environment}`;
-    btn.onclick = () => startSession(a.id);
-    li.append(btn);
+    const card = document.createElement("button");
+    card.className = "asset-card";
+    card.onclick = () => startSession(a.id);
+
+    const main = document.createElement("div");
+    main.className = "asset-main";
+    const name = document.createElement("span");
+    name.className = "asset-name";
+    name.textContent = a.name;
+    main.append(name);
     if (a.description) {
       const d = document.createElement("span");
-      d.className = "muted";
-      d.textContent = ` ${a.description}`;
-      li.append(d);
+      d.className = "asset-desc";
+      d.textContent = a.description;
+      main.append(d);
     }
+
+    const right = document.createElement("div");
+    right.className = "asset-right";
+    const env = document.createElement("span");
+    env.className = "pill env";
+    env.textContent = a.environment;
+    const connect = document.createElement("span");
+    connect.className = "connect";
+    connect.textContent = "Conectar →";
+    right.append(env, connect);
+
+    card.append(main, right);
+    li.append(card);
     list.append(li);
   }
   await refreshCatalog();
@@ -107,9 +128,16 @@ async function requestAccess(assetId, name) {
   await refreshCatalog();
 }
 
+// Atualiza o texto do status e a cor da pill na barra da sessao.
+function setSessionState(text, state) {
+  $("session-status").textContent = text;
+  const bar = document.querySelector("#session-view .session-bar");
+  if (bar) bar.className = "session-bar" + (state ? ` ${state}` : "");
+}
+
 function openVnc(gatewayUrl, token) {
   show("session");
-  $("session-status").textContent = "conectando…";
+  setSessionState("conectando…", "");
   const screen = $("screen");
   screen.innerHTML = "";
 
@@ -122,13 +150,13 @@ function openVnc(gatewayUrl, token) {
   rfb.scaleViewport = true;
 
   rfb.addEventListener("connect", () => {
-    $("session-status").textContent = "conectado";
+    setSessionState("conectado", "connected");
   });
   rfb.addEventListener("disconnect", (e) => {
-    $("session-status").textContent = e.detail?.clean ? "sessão encerrada" : "desconectado";
+    setSessionState(e.detail?.clean ? "sessão encerrada" : "desconectado", "ended");
   });
   rfb.addEventListener("securityfailure", () => {
-    $("session-status").textContent = "falha de segurança na sessão";
+    setSessionState("falha de segurança na sessão", "ended");
   });
 }
 
