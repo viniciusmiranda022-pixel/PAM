@@ -168,16 +168,28 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
       return end("failed", "client_handshake_failed", CLOSE.RFB_CLIENT_INVALID);
     }
 
+    // Pipe RFB estabelecido dos dois lados. Registra o teardown ANTES de qualquer
+    // await abaixo (markStarted/audit/recording): se o browser desconectar nessa
+    // janela, o evento 'close' nao pode se perder — senao a sessao vaza o TCP do
+    // asset (HR-07) e 'session.ended' nunca e auditado (HR-10).
+    const effAsset = assetSock as unknown as net.Socket;
+    effAsset.on("close", () => void end("closed", "asset_disconnect", CLOSE.NORMAL));
+    effAsset.on("error", () => void end("failed", "asset_error", CLOSE.ASSET_FAIL));
+    ws.on("close", () => void end("closed", "client_disconnect", CLOSE.NORMAL));
+    ws.on("error", () => void end("failed", "client_error", CLOSE.NORMAL));
+    // Registra no watchdog na MESMA volta do event loop que os handlers acima, antes
+    // de qualquer await: se o browser desconectar durante o setup, o unregister em
+    // end() nunca ocorre antes do register — evita entrada fantasma no registro de
+    // sessoes ativas. Watchdog: derruba WS+TCP ao vivo quando o backend termina.
+    registerSession(session.sessionId, (reason) =>
+      void end("terminated", reason, CLOSE.SESSION_INVALID),
+    );
+
     // Sessao estabelecida.
     startedAt = Date.now();
     await db.markStarted(session.sessionId);
     await db.audit("session.started", { ...base });
     metrics.sessionStarted();
-    // Registra p/ encerramento forcado ao vivo (watchdog): se o backend marcar
-    // esta sessao como terminada, o gateway derruba WS+TCP imediatamente.
-    registerSession(session.sessionId, (reason) =>
-      void end("terminated", reason, CLOSE.SESSION_INVALID),
-    );
 
     // Gravacao (Fase 5.1): tela (servidor->cliente) + ServerInit p/ playback.
     // Teclado do usuario (cliente->servidor) NAO e gravado (pode conter senhas
@@ -195,6 +207,11 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
       }
     }
 
+    // Se o browser (ou o asset) desconectou durante o setup acima, o teardown ja
+    // rodou via os handlers registrados logo apos o handshake — nao inicia o splice
+    // sobre sockets ja destruidos.
+    if (ended) return;
+
     // Splice binario transparente. Flush de qualquer residual bufferizado.
     const assetResidual = assetStream.detach();
     if (assetResidual.length) {
@@ -204,8 +221,9 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
     const wsResidual = wsStream.detach();
     if (wsResidual.length) assetSock!.write(wsResidual);
 
-    // Splice sobre o socket EFETIVO (o TLS quando houve VeNCrypt).
-    const effAsset = assetSock as unknown as net.Socket;
+    // Splice sobre o socket EFETIVO (o TLS quando houve VeNCrypt). Os handlers de
+    // close/error ja foram registrados acima (antes dos awaits) para nao perder o
+    // encerramento; aqui liga-se apenas o fluxo de dados.
     effAsset.on("data", (d: Buffer) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(d, { binary: true });
       recorder?.write(d);
@@ -213,11 +231,6 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
     ws.on("message", (d: Buffer, isBinary: boolean) => {
       if (isBinary && !effAsset.destroyed) effAsset.write(d);
     });
-
-    effAsset.on("close", () => void end("closed", "asset_disconnect", CLOSE.NORMAL));
-    effAsset.on("error", () => void end("failed", "asset_error", CLOSE.ASSET_FAIL));
-    ws.on("close", () => void end("closed", "client_disconnect", CLOSE.NORMAL));
-    ws.on("error", () => void end("failed", "client_error", CLOSE.NORMAL));
   } catch (err) {
     await db.audit("gateway.unexpected_error", { ...base });
     await end("failed", "unexpected_error", CLOSE.ASSET_FAIL);
