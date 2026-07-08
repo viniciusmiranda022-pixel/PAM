@@ -46,10 +46,16 @@ function fail(reply: FastifyReply, status: number, code: string, message: string
   reply.code(status).send({ error: { code, message } });
 }
 
-function clientIp(req: FastifyRequest): string | null {
-  const fwd = req.headers["x-forwarded-for"];
-  if (typeof fwd === "string" && fwd.length > 0) return fwd.split(",")[0].trim();
-  return req.ip ?? null;
+// Origem confiavel para auditoria (HR-10). O nginx sobrescreve X-Real-IP com o
+// $remote_addr (IP real visto pelo proxy), descartando qualquer X-Real-IP ou
+// X-Forwarded-For enviado pelo cliente. Por isso NAO confiamos no XFF (controlado
+// pelo cliente, falsificavel): usamos o X-Real-IP do proxy e, na sua ausencia
+// (ex.: acesso direto ao backend sem passar pelo nginx), o IP real do socket TCP.
+// Exportada para teste negativo de spoofing.
+export function clientIp(req: FastifyRequest): string | null {
+  const realIp = req.headers["x-real-ip"];
+  if (typeof realIp === "string" && realIp.length > 0) return realIp.trim();
+  return req.socket?.remoteAddress ?? null;
 }
 
 export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableStream) {

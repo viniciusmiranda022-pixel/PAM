@@ -63,14 +63,13 @@ async function main(): Promise<void> {
     [assetId, groupId],
   );
 
+  // Nao imprime senhas/credenciais no stdout (higiene operacional de logs). As
+  // senhas de login sao definidas por SEED_USER_PASSWORD / SEED_ADMIN_PASSWORD.
   // eslint-disable-next-line no-console
   console.log(
     JSON.stringify({
       msg: "seed concluido",
-      logins: {
-        user: { username: "poc", password: userPassword },
-        admin: { username: "admin", password: adminPassword },
-      },
+      users: ["poc", "admin"],
       asset: "lab-vnc",
     }),
   );
