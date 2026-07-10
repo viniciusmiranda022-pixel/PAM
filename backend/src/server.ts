@@ -8,7 +8,8 @@ import { hashPassword, needsRehash, verifyPassword } from "./auth.js";
 import { storeCredential } from "./credential-store.js";
 import { decryptCredential, encryptCredential } from "./credentials.js";
 import { generateTotpSecret, otpauthUrl, verifyTotp } from "./totp.js";
-import { buildAuthUrl, discover, exchangeCode, oidcConfig, verifyIdToken } from "./oidc.js";
+import { buildAuthUrl, discover, exchangeCode, oidcConfig, pkcePair, verifyIdToken } from "./oidc.js";
+import { registerSamlRoutes, samlConfig } from "./saml.js";
 import { portRejectionReason } from "./ports.js";
 import { RateLimiter } from "./rate-limit.js";
 import { metrics, registry } from "./metrics.js";
@@ -176,10 +177,19 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
     return reply.code(204).send();
   });
 
-  // Informa ao frontend se o botao "Entrar com SSO" deve aparecer.
-  app.get("/api/v1/auth/config", async () => ({ oidcEnabled: oidcConfig() !== null }));
+  // Informa ao frontend quais provedores SSO devem aparecer (e com que rotulo).
+  app.get("/api/v1/auth/config", async () => {
+    const oidc = oidcConfig();
+    const saml = samlConfig();
+    return {
+      oidcEnabled: oidc !== null,
+      oidcLabel: oidc?.label ?? null,
+      samlEnabled: saml !== null,
+      samlLabel: saml?.label ?? null,
+    };
+  });
 
-  // ───────────────────────────── SSO / OIDC (Fase 5.5) ─────────────────────
+  // ─────────────── SSO / OIDC (Fase 5.5; consolidado no PR-15) ─────────────
   const OIDC_TX_COOKIE = "pam_oidc_tx";
 
   app.get("/api/v1/auth/oidc/login", async (req, reply) => {
@@ -188,8 +198,10 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
     const disc = await discover(cfg.issuer);
     const state = randomBytes(16).toString("base64url");
     const nonce = randomBytes(16).toString("base64url");
-    // state+nonce guardados em cookie assinado de curta duracao (stateless).
-    reply.setCookie(OIDC_TX_COOKIE, JSON.stringify({ state, nonce }), {
+    const pkce = pkcePair();
+    // state+nonce+verifier em cookie assinado de curta duracao (stateless).
+    // O verifier nunca vai ao IdP na ida (so o challenge S256) — PKCE.
+    reply.setCookie(OIDC_TX_COOKIE, JSON.stringify({ state, nonce, verifier: pkce.verifier }), {
       httpOnly: true,
       sameSite: "lax", // o retorno vem via redirect do IdP (cross-site GET)
       secure: config.secureCookie,
@@ -197,7 +209,7 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
       path: "/",
       maxAge: 600,
     });
-    return reply.redirect(buildAuthUrl(disc, cfg, state, nonce));
+    return reply.redirect(buildAuthUrl(disc, cfg, state, nonce, pkce.challenge));
   });
 
   app.get<{ Querystring: { code?: string; state?: string } }>(
@@ -208,7 +220,7 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
       const raw = req.cookies[OIDC_TX_COOKIE];
       const unsigned = raw ? app.unsignCookie(raw) : { valid: false, value: null };
       if (!unsigned.valid || !unsigned.value) return fail(reply, 400, "INVALID_BODY", "transacao OIDC ausente");
-      const tx = JSON.parse(unsigned.value) as { state: string; nonce: string };
+      const tx = JSON.parse(unsigned.value) as { state: string; nonce: string; verifier?: string };
       reply.clearCookie(OIDC_TX_COOKIE, { path: "/" });
 
       if (!req.query.code || req.query.state !== tx.state) {
@@ -218,7 +230,7 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
       let claims;
       try {
         const disc = await discover(cfg.issuer);
-        const idToken = await exchangeCode(disc, cfg, req.query.code);
+        const idToken = await exchangeCode(disc, cfg, req.query.code, tx.verifier);
         claims = await verifyIdToken(idToken, cfg, disc, tx.nonce);
       } catch (err) {
         await db.audit("auth.oidc_failed", { sourceIp: clientIp(req), details: { reason: "token_invalid" } });
@@ -226,6 +238,7 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
       }
 
       // Mapeia sub -> usuario: por sub, senao vincula por email, senao provisiona.
+      const isAdminByGroup = cfg.adminGroup !== null && claims.groups.includes(cfg.adminGroup);
       let user = await db.findUserByOidcSubject(claims.sub);
       if (!user && claims.email) {
         const byEmail = await db.findUserByEmail(claims.email);
@@ -246,12 +259,29 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
       }
       if (user.status !== "active") return fail(reply, 403, "NOT_AUTHORIZED", "usuario inativo");
 
+      // Mapeamento grupo->papel (ADR 0003): SO ELEVA. O grupo admin do IdP
+      // promove a admin; a ausencia do grupo NUNCA rebaixa automaticamente
+      // (rebaixamento e ato administrativo explicito) — evita que uma mudanca
+      // de claim no IdP derrube o acesso de operacao num incidente.
+      if (isAdminByGroup && user.role !== "admin") {
+        await db.setUserRole(user.id, "admin");
+        user = { ...user, role: "admin" };
+        await db.audit("auth.role_elevated_by_idp", {
+          userId: user.id,
+          sourceIp: clientIp(req),
+          details: { group: cfg.adminGroup },
+        });
+      }
+
       setSession(reply, user.id);
       metrics.login("ok");
       await db.audit("auth.login", { userId: user.id, sourceIp: clientIp(req), details: { via: "oidc" } });
       return reply.redirect("/"); // volta ao portal ja autenticado
     },
   );
+
+  // ─────────────── SSO / SAML 2.0 (PR-15 — ADFS via SAML) ──────────────────
+  registerSamlRoutes(app, db, config, { setSession, clientIp, fail });
 
   app.get("/api/v1/auth/me", async (req, reply) => {
     const user = await requireUser(req, reply);

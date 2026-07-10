@@ -249,13 +249,18 @@ $("logout").addEventListener("click", async () => {
 
 $("end-session").addEventListener("click", endSession);
 
-// Botão SSO: aparece só se o backend tiver OIDC configurado.
+// Botões de SSO: cada um aparece só se o provedor correspondente estiver
+// configurado no backend, com o rótulo definido pelo operador.
 $("sso-btn").addEventListener("click", () => {
   location.href = "/api/v1/auth/oidc/login";
 });
+$("saml-btn").addEventListener("click", () => {
+  location.href = "/api/v1/auth/saml/login";
+});
 (async () => {
   const cfg = await api("/api/v1/auth/config").then((r) => r.json()).catch(() => ({}));
-  $("sso-btn").hidden = !cfg.oidcEnabled;
+  if (cfg.oidcEnabled) { $("sso-btn").hidden = false; if (cfg.oidcLabel) $("sso-btn").textContent = `Entrar com ${cfg.oidcLabel}`; }
+  if (cfg.samlEnabled) { $("saml-btn").hidden = false; if (cfg.samlLabel) $("saml-btn").textContent = `Entrar com ${cfg.samlLabel}`; }
 })();
 
 // Estado inicial: tenta retomar sessao de login existente.

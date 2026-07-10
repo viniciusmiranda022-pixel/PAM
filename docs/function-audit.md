@@ -28,8 +28,10 @@ pronto.
 |---|---|---|---|---|
 | Login local (senha + cookie assinado) | `POST /auth/login` | FUNCIONA | Postgres real; cookie assinado; KDF scrypt (N=2^17) com rehash transparente | ✅ KDF decidido em [`adr/0002-kdf-scrypt.md`](adr/0002-kdf-scrypt.md) (PR-13) |
 | MFA TOTP (RFC 6238) | `/auth/mfa/*` | FUNCIONA | vetores oficiais do RFC | manter |
-| SSO / OIDC (Authorization Code, RS256/JWKS) | `/auth/oidc/*` | PARCIAL | RSA real + verificação de produção, mas só contra **IdP simulado** in-process | validar contra IdP real (Keycloak/Azure AD); consolidar (PR-15) |
-| LDAP / ADFS | — | AUSENTE | não existe | implementar via OIDC/SAML/LDAPS (PR-15) |
+| SSO / OIDC (Authorization Code + PKCE, RS256/JWKS) | `/auth/oidc/*` | PARCIAL | Consolidado (PR-15): PKCE S256, rotação de JWKS, `client_secret_basic`, grupo→role. RSA real, mas só contra **IdP simulado** | validar contra IdP real (Entra/ADFS) |
+| ADFS | `/auth/oidc/*` (2019+) · `/auth/saml/*` (legado) | PARCIAL | Coberto por OIDC e por SAML (assinatura XML real via `@node-saml`), mas só contra IdP simulado | validar contra ADFS real |
+| SAML 2.0 (SP) | `/auth/saml/*` | PARCIAL | Assertion assinada validada (lib madura); IdP SAML simulado com assinatura real | validar contra ADFS/Shibboleth real |
+| LDAP / LDAPS | — | AUSENTE | adiado ao **PR-15B** (só LDAPS interno; nunca LDAP exposto) | implementar se necessário (PR-15B) |
 | Criar sessão (só `assetId`, token efêmero uso-único/TTL) | `POST /sessions` | FUNCIONA | corrida de token e expiração testadas contra Postgres real | manter; adicionar `protocol` ao modelo (PR-16) |
 | Rejeição de `host`/`port` no start de sessão | `POST /sessions` (schema) | FUNCIONA | teste de contrato | manter; estender p/ rejeitar `protocol` do cliente |
 | Adapter VNC — terminação RFB (`None`/`VNCAuth`) | `gateway/` | PARCIAL | DES conferido com vetores NIST + **servidor RFB simulado**; **nunca** TigerVNC nem browser reais | formalizar como adapter VNC + smoke test contra TigerVNC real |
