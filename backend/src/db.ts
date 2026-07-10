@@ -92,6 +92,43 @@ export class Db {
     );
   }
 
+  /** Mapeamento grupo->papel do IdP (ADR 0003) — so usado para ELEVAR. */
+  async setUserRole(userId: string, role: "user" | "admin"): Promise<void> {
+    await this.pool.query(
+      "UPDATE users SET role = $2::user_role, updated_at = now() WHERE id = $1",
+      [userId, role],
+    );
+  }
+
+  // ───────────────────────────── SAML (PR-15) ──────────────────────────────
+
+  async findUserBySamlSubject(subject: string): Promise<UserRow | null> {
+    const { rows } = await this.pool.query(
+      `SELECT id, username, display_name, role, password_hash, status, mfa_enabled, mfa_secret
+         FROM users WHERE saml_subject = $1`,
+      [subject],
+    );
+    return rows.length ? Db.mapUser(rows[0]) : null;
+  }
+
+  async linkSamlSubject(userId: string, subject: string): Promise<void> {
+    await this.pool.query(
+      "UPDATE users SET saml_subject = $2, updated_at = now() WHERE id = $1",
+      [userId, subject],
+    );
+  }
+
+  /** Cria uma conta a partir do SAML (sem senha local). */
+  async createSamlUser(subject: string, username: string, displayName: string, email: string | null): Promise<UserRow> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO users (username, display_name, email, role, saml_subject)
+       VALUES ($1, $2, $3, 'user', $4)
+       RETURNING id, username, display_name, role, password_hash, status, mfa_enabled, mfa_secret`,
+      [username, displayName, email, subject],
+    );
+    return Db.mapUser(rows[0]);
+  }
+
   async findUserByEmail(email: string): Promise<UserRow | null> {
     const { rows } = await this.pool.query(
       `SELECT id, username, display_name, role, password_hash, status, mfa_enabled, mfa_secret

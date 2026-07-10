@@ -128,6 +128,21 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
       OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
       OIDC_AUTO_PROVISION: ${OIDC_AUTO_PROVISION:-true}
+      # Auth enterprise (PR-15). OIDC cobre ADFS 2019+/Entra ID; SAML cobre
+      # ADFS legado. Grupo->papel SO ELEVA a admin (nunca rebaixa).
+      OIDC_SCOPES: ${OIDC_SCOPES:-}
+      OIDC_TOKEN_AUTH: ${OIDC_TOKEN_AUTH:-}          # post (default) | basic
+      OIDC_GROUPS_CLAIM: ${OIDC_GROUPS_CLAIM:-}      # ex.: groups | roles
+      OIDC_ADMIN_GROUP: ${OIDC_ADMIN_GROUP:-}        # grupo do IdP que vira admin
+      OIDC_PROVIDER_LABEL: ${OIDC_PROVIDER_LABEL:-}  # rotulo do botao
+      # SAML 2.0 (ADFS via SAML). Definindo os 4 primeiros, o botao aparece.
+      SAML_IDP_ENTRYPOINT: ${SAML_IDP_ENTRYPOINT:-}
+      SAML_IDP_CERT: ${SAML_IDP_CERT:-}
+      SAML_SP_ISSUER: ${SAML_SP_ISSUER:-}
+      SAML_CALLBACK_URL: ${SAML_CALLBACK_URL:-}
+      SAML_AUTO_PROVISION: ${SAML_AUTO_PROVISION:-true}
+      SAML_ADMIN_GROUP: ${SAML_ADMIN_GROUP:-}
+      SAML_PROVIDER_LABEL: ${SAML_PROVIDER_LABEL:-}
     volumes:
       # Somente leitura: o backend apenas serve as gravacoes ao admin.
       - recordings:/recordings:ro
