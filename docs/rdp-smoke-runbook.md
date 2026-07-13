@@ -14,8 +14,8 @@ num host com Docker + alvos RDP reais.
 
 **O que este smoke valida:** o **worker do PR-17B** (spike isolado do RDP Worker
 sobre `libfreerdp`, sem integração ao produto). O artefato precisa existir antes —
-por isso a ordem é `PR-17A (decisão) → PR-17B (worker isolado) → smoke P0 → PR-17C
-(integração)`, sem ciclo.
+por isso a ordem é `PR-17A (decisão) → PR-17B0 (contrato, docs-only) → PR-17B
+(worker isolado) → smoke P0 → PR-17C (integração)`, sem ciclo.
 
 **Gate:** enquanto o smoke P0 não passar, o **PR-17C (adapter + integração ao broker/
 registry em perfil de laboratório) fica bloqueado**. Este runbook é o critério
@@ -29,12 +29,14 @@ verde não habilita o RDP para usuários** — a prontidão é decidida no **gat
 - Docker com `pull` liberado (ex.: seu notebook).
 - Alvo RDP nº 1: **Windows** com **NLA** habilitado.
 - Alvo RDP nº 2: **xrdp** (segundo alvo, comportamento diferente do Windows).
-- O **RDP Worker isolado + `libfreerdp`** com **versão fixada** (tag/digest do
-  worker e versão da `libfreerdp`). O smoke testa o **nosso worker + FreeRDP**,
-  nunca guacd.
+- O worker do PR-17B — **`privion-rdp-worker-lab`** (C++20 sobre a API C do
+  **FreeRDP 3.28.0 fixado por source**; contrato em
+  [`adr/0006-rdp-worker-spike.md`](adr/0006-rdp-worker-spike.md)). O smoke testa o
+  **nosso worker + FreeRDP**, nunca guacd.
 - Um **harness de laboratório** que injeta no worker o destino `(ip, porta,
-  domínio, credencial)` — no P0 **o harness controla o destino** (não há backend
-  nem frontend ainda).
+  domínio)` via `lab-targets.json` (não secreto) e a **credencial via fd/secret-file
+  `0400`** — no P0 **o harness controla o destino** (não há backend nem frontend
+  ainda).
 
 ## Checklist P0 — worker isolado (todos devem passar)
 

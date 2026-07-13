@@ -158,7 +158,8 @@ só então o **PR-17G** habilita o RDP em runtime.
 | Sub-PR | Objetivo | Status |
 |----|----------|--------|
 | **PR-17A** | Decisão de engine (ADR 0005 `Accepted — Conditional`, condicionada **ao P0**, com matriz preenchida), threat model ([`threat-models/rdp.md`](threat-models/rdp.md)), runbooks dos gates P0/P1. **Docs-only, zero código.** | 🟢 este PR |
-| **PR-17B** | **Spike isolado** do RDP Worker próprio sobre `libfreerdp` — worker/harness de laboratório. **Sem** gateway/backend/registry/UI, **sem** `SUPPORTED_PROTOCOLS`, **sem** `protocol=rdp`, **sem** endpoint de sessão nem conexão arbitrária exposta | ⬜ |
+| **PR-17B0** | **Contrato de implementação do worker** ([`adr/0006-rdp-worker-spike.md`](adr/0006-rdp-worker-spike.md) + [`protocols/rdp-worker-spike.md`](protocols/rdp-worker-spike.md)): C++20 + API C do FreeRDP, `rdp-worker/` top-level, UDS-only, proteção de credencial, pinagem/SBOM, CI nativo, scope guard, limites e critérios de aceite. **Docs-only, zero código.** | 🟢 este PR |
+| **PR-17B** | **Implementação** do spike isolado: RDP Worker (`privion-rdp-worker-lab`) — **C++20** fino sobre a API C do **FreeRDP 3.28.0 fixado por source**, em novo top-level `rdp-worker/`; UDS `0600` + peer creds; credencial via fd/secret-file `0400`; build nativo + SBOM no CI (`rdp-worker-build-test`); scope guard (`check-rdp-worker-scope.sh`). **Obedece o contrato do PR-17B0.** **Sem** gateway/backend/registry/UI/`SUPPORTED_PROTOCOLS`/`protocol=rdp`/TCP; recusa `PAM_ENV=production` | ⛔ **após o merge do PR-17B0** |
 | **Smoke P0** | Gate do **worker isolado** do PR-17B contra **Windows (NLA)** e **xrdp** ([`rdp-smoke-runbook.md`](rdp-smoke-runbook.md)) — **aceita a engine** (ADR 0005 → `Accepted`) e desbloqueia o início do PR-17C | ⛔ fora do sandbox |
 | **PR-17C** | Adapter RDP + integração ao broker/registry **em perfil de laboratório**: `SUPPORTED_PROTOCOLS` continua `["vnc"]`, sem UI/rota/asset RDP de produção; exercitado só por testes e perfil de laboratório (que recusa `PAM_ENV=production`) | ⛔ **bloqueado até o smoke P0 verde** |
 | **PR-17D** | Segurança/políticas: NLA/CredSSP, validação de certificado, canais virtuais (clipboard/drive/printer **off** por padrão), política por asset | ⬜ |
@@ -167,7 +168,8 @@ só então o **PR-17G** habilita o RDP em runtime.
 | **Gate P1** | Gate de **integração/segurança end-to-end** do produto completo ([`rdp-integration-p1-runbook.md`](rdp-integration-p1-runbook.md)) — roda **somente após os PRs 17C–17F**; **aceita o adapter como produto** | ⛔ fora do sandbox; **após o PR-17F** |
 | **PR-17G** | **Habilitação controlada** do RDP em runtime — **somente aqui** `SUPPORTED_PROTOCOLS = ["vnc", "rdp"]`, após o gate P1 verde | ⛔ **após o gate P1** |
 
-> **Gate não-circular (sequência final):** `PR-17A → PR-17B → smoke P0 → PR-17C →
+> **Gate não-circular (sequência final):** `PR-17A → PR-17B0 (contrato, docs-only) →
+> PR-17B → smoke P0 → PR-17C →
 > PR-17D → PR-17E → PR-17F → gate P1 → PR-17G`. O **smoke P0 aceita a engine** (ADR
 > 0005 → `Accepted`) e desbloqueia o PR-17C; o **gate P1** só roda depois do PR-17F
 > (precisa do cliente web, das políticas, da auditoria completa, do encerramento
