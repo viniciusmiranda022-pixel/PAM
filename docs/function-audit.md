@@ -53,7 +53,12 @@ pronto.
 | Suíte de testes de integração versionada | `tests/` | FUNCIONA | ✅ `tests/integration` + `tests/security` versionadas (14 casos) contra Postgres real (PR-13) | expandir por adapter |
 | "Build" do frontend | `frontend` | AUSENTE (é estático) | por design; CI faz `node --check` em `server.mjs`/`public/*.js` (não `npm run build`) | manter |
 | Seed com senha default em log | `backend/src/seed.ts` | FUNCIONA | ✅ senhas obrigatórias via env, sem default, sem senha no stdout (HR-06, PR-13) | manter |
-| Adapters RDP / SSH | — | AUSENTE | planejados | um adapter por PR (PR-17+), RDP antes de SSH |
+| Adapter RDP — decisão da engine | `docs/adr/0005` | EM DECISÃO | ADR `Accepted — Conditional` (PR-17A): **RDP Worker próprio + libfreerdp** preferencial (matriz preenchida; guacd rejeitado por decisão de produto). **Condicionada apenas ao gate P0** (é decisão de engine) | PR-17B: spike isolado do worker; depois smoke P0 |
+| Adapter RDP — worker (spike) | — | AUSENTE | worker/harness isolado, sem integração; **validado no P0** (Windows/xrdp) | PR-17B (fora do sandbox p/ smoke P0) |
+| Adapter RDP — integrado (adapter+broker) | — | AUSENTE | **desenvolvido nos PRs 17C–17F** em perfil de laboratório; `SUPPORTED_PROTOCOLS=["vnc"]`; gateway recusa `rdp`; sem UI/rota/asset RDP de produção | PR-17C **bloqueado até P0 verde**; PRs 17D/17E/17F na sequência |
+| Suporte RDP de produção | — | AUSENTE | **condicionado ao gate P1** (produto integrado end-to-end, executado **após o PR-17F**) | Gate P1 |
+| Habilitação de RDP em runtime | — | AUSENTE | `SUPPORTED_PROTOCOLS = ["vnc","rdp"]` **somente no PR-17G**, após P1 verde | PR-17G |
+| Adapter SSH | — | AUSENTE | planejado, depois do RDP | PR-18+ |
 
 ## Conclusão
 
