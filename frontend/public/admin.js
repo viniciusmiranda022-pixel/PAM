@@ -43,6 +43,7 @@ async function loadAssets() {
   state.assets = await getJson("/api/v1/admin/assets");
   table($('[data-list="assets"]'), state.assets, [
     { label: "Nome", get: (a) => a.name },
+    { label: "Protocolo", get: (a) => `<span class="pill">${(a.protocol ?? "vnc").toUpperCase()}</span>` },
     { label: "Ambiente", get: (a) => a.environment },
     { label: "IP", get: (a) => a.ip_address },
     { label: "Porta", get: (a) => a.port },
@@ -182,6 +183,7 @@ function wireForms() {
       name: d.name,
       description: d.description || undefined,
       environment: d.environment,
+      protocol: d.protocol,
       ipAddress: d.ipAddress,
       port: Number(d.port),
       vncPassword: d.vncPassword,

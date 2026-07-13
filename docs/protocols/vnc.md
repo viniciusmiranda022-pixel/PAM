@@ -6,7 +6,10 @@ adapter futuro (RDP, SSH…) deve seguir o mesmo padrão de segurança.
 
 ## Papel na arquitetura
 
-O adapter VNC vive na camada de gateway (`gateway/src/`). A camada comum cuida do
+O adapter VNC vive isolado em `gateway/src/adapters/vnc/` (`index.ts` implementa o
+contrato `ProtocolAdapter`; `handshake.ts`/`rfb.ts`/`vencrypt.ts` são a mecânica
+RFB). O gateway resolve o adapter pelo `protocol` do asset via o registry
+(`gateway/src/adapters/index.ts`). A camada comum cuida do
 upgrade WebSocket, do consumo do token efêmero, do ciclo de vida e da gravação; o
 adapter cuida de **falar RFB dos dois lados**. Ver
 [`../architecture.md`](../architecture.md) §2 e §4.
@@ -63,7 +66,7 @@ cadastradas por admin, sempre fora do denylist imutável. Ver
 
 | Aspecto | Referência |
 |---|---|
-| Handshake RFB + injeção de credencial | módulos do gateway em `gateway/src/` |
+| Handshake RFB + injeção de credencial | `gateway/src/adapters/vnc/` (adapter + `handshake.ts`/`rfb.ts`/`vencrypt.ts`) |
 | VeNCrypt (upgrade TLS) | [`../phase5-vencrypt.md`](../phase5-vencrypt.md) |
 | Contrato WebSocket / códigos de close | [`../api-contract.md`](../api-contract.md) §4 |
 | Estado de verificação (real x fachada) | [`../function-audit.md`](../function-audit.md) — adapter VNC está **PARCIAL**: DES conferido com vetores NIST + RFB simulado; falta smoke test contra TigerVNC e navegador reais |

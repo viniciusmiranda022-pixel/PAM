@@ -7,8 +7,8 @@ import {
   RfbError,
   vncDesKey,
   vncEncryptChallenge,
-} from "../src/rfb.ts";
-import { assetHandshake, browserHandshake } from "../src/handshake.ts";
+} from "../src/adapters/vnc/rfb.ts";
+import { assetHandshake, browserHandshake } from "../src/adapters/vnc/handshake.ts";
 import type { ByteStreamReader } from "../src/byte-stream-types.ts";
 
 /** Reader roteirizado por um buffer fixo; captura tambem o residual. */

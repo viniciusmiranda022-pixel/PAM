@@ -77,4 +77,10 @@ describe("fluxo de sessao (integracao)", () => {
     const consumed = await gw.consumeToken(gwSha256(token));
     expect(consumed).toBeNull();
   });
+
+  it("consumeToken devolve o protocolo do asset (PR-16; default vnc)", async () => {
+    const { token } = await createSession();
+    const consumed = await gw.consumeToken(gwSha256(token));
+    expect(consumed?.protocol).toBe("vnc"); // o gateway resolve o adapter por este valor
+  });
 });

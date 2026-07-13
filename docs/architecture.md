@@ -54,8 +54,9 @@ O **VNC (RFB) é o adapter de referência, já implementado**. Novos protocolos
 | **Cliente de sessão** | Cliente do protocolo no navegador (ex.: noVNC/RFB sobre WebSocket para o adapter VNC) | dependência do frontend |
 | **Backend API** | Usuários, grupos, permissões, assets, sessões, auditoria | `backend/` |
 | **Session Broker** | Módulo do backend: resolve protocolo/destino/credencial, cria/valida/encerra sessão, emite token efêmero | `backend/` |
-| **Protocol Gateway Layer** | Camada comum do gateway: upgrade WebSocket, consumo de token, ciclo de vida, gravação, seleção do adapter | `gateway/` |
-| **Protocol Adapter** | Fala **um** protocolo dos dois lados (terminação de handshake), injeta credencial no lado do asset | `gateway/src/` (VNC hoje; futuros em `adapters/{rdp,ssh}`) |
+| **Protocol Gateway Layer** | Camada comum do gateway: upgrade WebSocket, consumo de token, resolução de destino/credencial, ciclo de vida, splice, gravação, watchdog, auditoria e **seleção do adapter** pelo `protocol` do asset | `gateway/src/session.ts` |
+| **Adapter Registry** | `Map<protocol, adapter>`; resolve o adapter e **recusa** protocolo sem adapter (HR-09) | `gateway/src/adapters/index.ts` |
+| **Protocol Adapter** | Fala **um** protocolo dos dois lados (terminação de handshake), injeta credencial no lado do asset. Contrato em `adapters/types.ts` | `gateway/src/adapters/vnc/` (VNC; futuros: `adapters/{rdp,ssh}/`) |
 | **PostgreSQL** | Assets, usuários, permissões, sessões, allowlist, logs de auditoria | `infra/postgres/` |
 | **Cofre (Vault)** | Credencial dos assets — write-only pela API, lida só pelo gateway/broker | `infra/vault/` |
 | **Reverse Proxy** | TLS, WSS, headers de segurança, rate limit de borda | `infra/nginx/` |

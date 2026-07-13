@@ -470,7 +470,7 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
       assetId,
       sessionId,
       sourceIp: ip,
-      details: { hasJustification: Boolean(justification) },
+      details: { hasJustification: Boolean(justification), protocol: asset.protocol },
     });
     metrics.sessionCreated();
 
@@ -543,6 +543,7 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
         name: a.name,
         description: a.description ?? null,
         environment: a.environment,
+        protocol: a.protocol,
         ipAddress: a.ipAddress,
         port: a.port,
         credentialRef,
@@ -576,6 +577,7 @@ export function buildServer(db: Db, config: Config, logStream?: NodeJS.WritableS
       const updated = await db.adminUpdateAsset(req.params.id, {
         description: p.description,
         environment: p.environment,
+        protocol: p.protocol,
         ipAddress: p.ipAddress,
         port: p.port,
         credentialRef,

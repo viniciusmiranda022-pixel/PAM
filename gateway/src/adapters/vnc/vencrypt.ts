@@ -12,19 +12,17 @@
  */
 import tls from "node:tls";
 import type { Socket } from "node:net";
-import { SocketByteStream } from "./byte-stream.js";
-import type { ByteStreamReader } from "./byte-stream-types.js";
+import { SocketByteStream } from "../../byte-stream.js";
+import type { ByteStreamReader } from "../../byte-stream-types.js";
+import type { AdapterTlsOptions } from "../types.js";
 import { RFB_SECURITY, RfbError } from "./rfb.js";
 
 export const RFB_SEC_VENCRYPT = 19;
 const SUB_X509_NONE = 260;
 const SUB_X509_VNC = 261;
 
-export interface TlsClientOptions {
-  rejectUnauthorized: boolean;
-  ca?: Buffer;
-  servername?: string;
-}
+// A dependencia vai do adapter para o contrato generico (nunca o contrario).
+export type TlsClientOptions = AdapterTlsOptions;
 
 export interface VeNCryptResult {
   socket: tls.TLSSocket;
