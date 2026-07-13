@@ -142,7 +142,7 @@ genérico. Antes da auditoria de cada função, ver [`function-audit.md`](functi
 | **PR-13** | Hardening & CI | IP de origem não-spoofável (nginx `$remote_addr`, `trustProxy` restrito), remover senhas do seed, CI mínimo (typecheck+test+scan de proxy-genérico/deps/segredos), versionar a suíte de integração, usuário DB runtime com privilégio mínimo, decisão de KDF (scrypt, ADR 0002) | 🟢 este PR |
 | **PR-14** | UI enterprise | portal estilo Fluent; esconder função incompleta; nenhum botão morto | ⬜ |
 | **PR-15** | Auth enterprise | consolidar OIDC; ADFS via OIDC/SAML; LDAPS interno se necessário (nunca LDAP direto exposto à internet) | ⬜ |
-| **PR-16** | Abstração de protocolo | `protocol` no modelo de asset + **adapter registry**; VNC vira adapter oficial registrado. Sem novos protocolos ainda | ⬜ |
+| **PR-16** | Abstração de protocolo | `protocol` no modelo de asset + **adapter registry**; VNC isolado em `adapters/vnc/` como adapter oficial; gateway recusa protocolo sem adapter. Sem novos protocolos ainda | 🟢 este PR |
 | **PR-17+** | Novos adapters | um adapter por PR — **RDP primeiro, SSH depois** — cada um com threat model, contrato, terminação de handshake, gravação, auditoria e testes próprios | ⬜ |
 
 Critérios de aceite de um **novo adapter** (PR-17+):

@@ -1,14 +1,17 @@
 /**
- * Orquestracao de uma sessao VNC: valida o token efemero, conecta ao asset,
- * termina o handshake RFB dos dois lados e faz o splice binario ate o fim.
- * Todo caminho de saida encerra os dois sockets e audita (HR-10).
+ * Orquestracao de sessao (agnostica de protocolo — PR-16): valida o token
+ * efemero, resolve destino/credencial do banco, conecta o TCP e delega a
+ * TERMINACAO DO HANDSHAKE ao adapter do protocolo do asset. Faz o splice binario
+ * ate o fim. Nunca ha proxy TCP generico (HR-08/HR-09). Todo caminho de saida
+ * encerra os dois sockets e audita (HR-10).
  */
 import net from "node:net";
 import { WebSocket } from "ws";
 import type { IncomingMessage } from "node:http";
 import { WsByteStream } from "./byte-stream.js";
-import { assetHandshakeTls, browserHandshake, withTimeout } from "./handshake.js";
-import { RfbError } from "./rfb.js";
+import { withTimeout } from "./timeout.js";
+import { getAdapter } from "./adapters/index.js";
+import { AdapterHandshakeError, ADAPTER_CLOSE } from "./adapters/types.js";
 import { resolveCredential, tlsClientOptions } from "./config.js";
 import { Db, sha256 } from "./db.js";
 import { registerSession, unregisterSession } from "./registry.js";
@@ -16,15 +19,14 @@ import { metrics } from "./metrics.js";
 import { SessionRecorder } from "./recorder.js";
 import path from "node:path";
 
-// Codigos de close do WebSocket (docs/api-contract.md secao 4).
+// Codigos de close do WebSocket (docs/api-contract.md secao 4). Os codigos de
+// falha de handshake ficam em ADAPTER_CLOSE (donos do adapter).
 const CLOSE = {
   NORMAL: 1000,
-  RFB_CLIENT_INVALID: 4400,
   TOKEN_INVALID: 4401,
   SESSION_INVALID: 4403,
   CREDENTIAL_FAIL: 4502,
   ASSET_FAIL: 4503,
-  VNC_AUTH_FAIL: 4504,
 } as const;
 
 function tokenFromSubprotocol(req: IncomingMessage): string | null {
@@ -101,7 +103,7 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
     }
     await db.markEnded(session.sessionId, status, reason);
     const durationSeconds = startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0;
-    await db.audit("session.ended", { ...base, details: { endReason: reason, durationSeconds } });
+    await db.audit("session.ended", { ...base, details: { endReason: reason, durationSeconds, protocol: session.protocol } });
   };
 
   try {
@@ -114,6 +116,14 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
     if (!(await db.isPortAllowed(session.port))) {
       await db.audit("gateway.port_blocked", { ...base, details: { port: session.port } });
       return end("failed", "port_blocked", CLOSE.ASSET_FAIL);
+    }
+
+    // Resolve o adapter pelo protocolo do asset. Protocolo sem adapter
+    // registrado e RECUSADO — nunca ha fallback para proxy generico (HR-09).
+    const adapter = getAdapter(session.protocol);
+    if (!adapter) {
+      await db.audit("gateway.protocol_unsupported", { ...base, details: { protocol: session.protocol } });
+      return end("failed", "protocol_unsupported", CLOSE.SESSION_INVALID);
     }
 
     let password: string;
@@ -141,40 +151,35 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
       return end("failed", "asset_connect_failed", CLOSE.ASSET_FAIL);
     }
 
-    let serverInit: Buffer;
+    // Terminacao do handshake dos dois lados, delegada ao adapter do protocolo.
+    // O adapter valida o banner do protocolo (HR-08) e nunca envia credencial ao
+    // navegador (HR-05); em falha, lanca AdapterHandshakeError (evento + close).
+    const wsStream = new WsByteStream(ws);
+    let serverInit: Buffer | null;
     let assetStream: import("./byte-stream-types.js").ByteStreamReader;
     try {
-      const hs = await withTimeout(
-        assetHandshakeTls(socket, password, session.tlsRequired, tlsClientOptions()),
-        handshakeTimeoutMs,
-        "asset-rfb",
-      );
-      serverInit = hs.serverInit;
-      assetStream = hs.stream;
-      assetSock = hs.socket as unknown as typeof assetSock; // TLS quando VeNCrypt
-      if (session.tlsRequired) await db.audit("gateway.tls_established", { ...base });
+      const result = await adapter.connect({
+        assetSocket: socket,
+        credential: password,
+        tlsRequired: session.tlsRequired,
+        tlsOptions: tlsClientOptions(),
+        ws,
+        wsStream,
+        wsSend: (b) => ws.send(b, { binary: true }),
+        timeoutMs: handshakeTimeoutMs,
+        withTimeout,
+      });
+      serverInit = result.recordingPreamble;
+      assetStream = result.assetStream;
+      assetSock = result.effectiveAssetSocket as unknown as typeof assetSock; // TLS quando VeNCrypt
+      if (result.tlsEstablished) await db.audit("gateway.tls_established", { ...base });
     } catch (err) {
-      const isAuth = err instanceof RfbError && /autentica/.test(err.message);
-      const isBanner = err instanceof RfbError && /banner|RFB/.test(err.message);
-      const isTls = err instanceof RfbError && /VeNCrypt|tls_required/i.test(err.message);
-      if (isBanner) await db.audit("gateway.banner_mismatch", { ...base });
-      else if (isTls) await db.audit("gateway.tls_required_failed", { ...base });
-      else if (isAuth) await db.audit("gateway.vnc_auth_failed", { ...base });
-      else await db.audit("gateway.asset_handshake_failed", { ...base });
-      return end("failed", isAuth ? "vnc_auth_failed" : "asset_handshake_failed",
-        isAuth ? CLOSE.VNC_AUTH_FAIL : CLOSE.ASSET_FAIL);
-    }
-
-    const wsStream = new WsByteStream(ws);
-    try {
-      await withTimeout(
-        browserHandshake(wsStream, (b) => ws.send(b, { binary: true }), serverInit),
-        handshakeTimeoutMs,
-        "browser-rfb",
-      );
-    } catch {
-      await db.audit("gateway.client_handshake_failed", { ...base });
-      return end("failed", "client_handshake_failed", CLOSE.RFB_CLIENT_INVALID);
+      if (err instanceof AdapterHandshakeError) {
+        await db.audit(err.auditEvent, { ...base });
+        return end("failed", err.reason, err.closeCode);
+      }
+      await db.audit("gateway.asset_handshake_failed", { ...base });
+      return end("failed", "asset_handshake_failed", ADAPTER_CLOSE.ASSET_FAIL);
     }
 
     // Pipe RFB estabelecido dos dois lados. Registra o teardown ANTES de qualquer
@@ -197,14 +202,14 @@ export async function runSession(ws: WebSocket, req: IncomingMessage, db: Db): P
     // Sessao estabelecida.
     startedAt = Date.now();
     await db.markStarted(session.sessionId);
-    await db.audit("session.started", { ...base });
+    await db.audit("session.started", { ...base, details: { protocol: session.protocol } });
     metrics.sessionStarted();
 
     // Gravacao (Fase 5.1): tela (servidor->cliente) + ServerInit p/ playback.
     // Teclado do usuario (cliente->servidor) NAO e gravado (pode conter senhas
     // digitadas dentro da sessao — coerente com HR-06).
     const recordingsDir = process.env.RECORDINGS_DIR;
-    if (session.recordSessions && recordingsDir) {
+    if (session.recordSessions && recordingsDir && serverInit) {
       try {
         const filePath = path.join(recordingsDir, `${session.sessionId}.pamrec`);
         recorder = new SessionRecorder(filePath, serverInit);

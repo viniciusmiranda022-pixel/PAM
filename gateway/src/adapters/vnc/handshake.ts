@@ -11,8 +11,8 @@
  */
 import type { Socket } from "node:net";
 import type { TLSSocket } from "node:tls";
-import type { ByteStreamReader } from "./byte-stream-types.js";
-import { SocketByteStream } from "./byte-stream.js";
+import type { ByteStreamReader } from "../../byte-stream-types.js";
+import { SocketByteStream } from "../../byte-stream.js";
 import {
   RFB_SECURITY,
   RfbError,
@@ -24,22 +24,6 @@ import {
 import { RFB_SEC_VENCRYPT, veNCryptUpgrade, type TlsClientOptions } from "./vencrypt.js";
 
 type Send = (b: Buffer) => void;
-
-export function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => reject(new RfbError(`timeout no handshake: ${label}`)), ms);
-    p.then(
-      (v) => {
-        clearTimeout(t);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(t);
-        reject(e);
-      },
-    );
-  });
-}
 
 async function readReason(stream: ByteStreamReader): Promise<string> {
   const len = (await stream.read(4)).readUInt32BE(0);

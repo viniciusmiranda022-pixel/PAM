@@ -34,7 +34,8 @@ pronto.
 | LDAP / LDAPS | — | AUSENTE | adiado ao **PR-15B** (só LDAPS interno; nunca LDAP exposto) | implementar se necessário (PR-15B) |
 | Criar sessão (só `assetId`, token efêmero uso-único/TTL) | `POST /sessions` | FUNCIONA | corrida de token e expiração testadas contra Postgres real | manter; adicionar `protocol` ao modelo (PR-16) |
 | Rejeição de `host`/`port` no start de sessão | `POST /sessions` (schema) | FUNCIONA | teste de contrato | manter; estender p/ rejeitar `protocol` do cliente |
-| Adapter VNC — terminação RFB (`None`/`VNCAuth`) | `gateway/` | PARCIAL | DES conferido com vetores NIST + **servidor RFB simulado**; **nunca** TigerVNC nem browser reais | formalizar como adapter VNC + smoke test contra TigerVNC real |
+| Adapter registry (resolve protocolo, recusa desconhecido) | `gateway/src/adapters/` | FUNCIONA | ✅ registry + interface `ProtocolAdapter` (PR-16); e2e in-process recusa protocolo sem adapter | manter |
+| Adapter VNC — terminação RFB (`None`/`VNCAuth`) | `gateway/src/adapters/vnc/` | PARCIAL | ✅ isolado atrás do contrato (PR-16); DES×NIST + **RFB simulado** + e2e com par WebSocket real; **nunca** TigerVNC real | smoke test contra TigerVNC real |
 | Portal + cliente noVNC (tela no browser) | `frontend/public` | PARCIAL | fluxo exercitado via automação; **nunca** aberto em navegador real | validar em browser real; refatorar p/ Fluent (PR-14) |
 | Gravação de sessão (PAMREC01) | `gateway` | PARCIAL | gravação testada em unidade | validar contra tráfego RFB real |
 | Playback de gravação (replay no browser) | `frontend` `replay.html` | PARCIAL | **nunca** assistido em navegador real | validar playback real |

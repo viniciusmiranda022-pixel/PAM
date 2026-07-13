@@ -5,6 +5,8 @@ export interface ConsumedSession {
   sessionId: string;
   userId: string;
   assetId: string;
+  /** Protocolo do asset (resolve o adapter no gateway — PR-16). */
+  protocol: string;
   ip: string;
   port: number;
   credentialRef: string | null;
@@ -41,6 +43,7 @@ export class Db {
             AND s.status = 'pending'
         RETURNING s.id, s.user_id, s.asset_id, s.client_ip)
        SELECT c.id AS session_id, c.user_id, c.asset_id,
+              COALESCE(a.protocol, 'vnc') AS protocol,
               host(a.ip_address) AS ip, a.port,
               a.credential_ref, a.status AS asset_status,
               host(c.client_ip) AS client_ip,
@@ -56,6 +59,7 @@ export class Db {
       sessionId: r.session_id,
       userId: r.user_id,
       assetId: r.asset_id,
+      protocol: r.protocol,
       ip: r.ip,
       port: r.port,
       credentialRef: r.credential_ref,

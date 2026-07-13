@@ -48,11 +48,16 @@ export const denyAccessRequestSchema = z
 const status = z.enum(["active", "inactive"]);
 const role = z.enum(["user", "admin"]);
 
+// Protocolos com adapter oficial (espelha o registry do gateway — PR-16).
+// Novos protocolos entram aqui junto com o adapter correspondente (PR-17+).
+export const SUPPORTED_PROTOCOLS = ["vnc"] as const;
+
 export const createAssetSchema = z
   .object({
     name: z.string().min(1).max(128),
     description: z.string().max(1024).optional(),
     environment: z.string().min(1).max(64).default("production"),
+    protocol: z.enum(SUPPORTED_PROTOCOLS).default("vnc"),
     ipAddress: z.string().ip(),
     port: z.number().int(),
     vncPassword: z.string().min(1).max(1024), // write-only: vai ao cofre
@@ -67,6 +72,7 @@ export const updateAssetSchema = z
   .object({
     description: z.string().max(1024).optional(),
     environment: z.string().min(1).max(64).optional(),
+    protocol: z.enum(SUPPORTED_PROTOCOLS).optional(),
     ipAddress: z.string().ip().optional(),
     port: z.number().int().optional(),
     vncPassword: z.string().min(1).max(1024).optional(), // rotacao

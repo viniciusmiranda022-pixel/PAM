@@ -317,13 +317,13 @@ export class Db {
 
   async getAsset(
     assetId: string,
-  ): Promise<{ id: string; port: number; status: "active" | "inactive" } | null> {
+  ): Promise<{ id: string; port: number; status: "active" | "inactive"; protocol: string } | null> {
     const { rows } = await this.pool.query(
-      "SELECT id, port, status FROM assets WHERE id = $1",
+      "SELECT id, port, status, COALESCE(protocol, 'vnc') AS protocol FROM assets WHERE id = $1",
       [assetId],
     );
     if (rows.length === 0) return null;
-    return { id: rows[0].id, port: rows[0].port, status: rows[0].status };
+    return { id: rows[0].id, port: rows[0].port, status: rows[0].status, protocol: rows[0].protocol };
   }
 
   async isPortAllowed(port: number): Promise<boolean> {
@@ -399,7 +399,8 @@ export class Db {
 
   async adminListAssets(): Promise<Array<Record<string, unknown>>> {
     const { rows } = await this.pool.query(
-      `SELECT id, name, description, environment, host(ip_address) AS ip_address,
+      `SELECT id, name, description, environment, COALESCE(protocol, 'vnc') AS protocol,
+              host(ip_address) AS ip_address,
               port, status, record_sessions, requestable, require_justification,
               tls_required, created_at
          FROM assets ORDER BY name`,
@@ -411,6 +412,7 @@ export class Db {
     name: string;
     description: string | null;
     environment: string;
+    protocol: string;
     ipAddress: string;
     port: number;
     credentialRef: string;
@@ -420,12 +422,12 @@ export class Db {
     tlsRequired: boolean;
   }): Promise<Record<string, unknown>> {
     const { rows } = await this.pool.query(
-      `INSERT INTO assets (name, description, environment, ip_address, port, credential_ref,
+      `INSERT INTO assets (name, description, environment, protocol, ip_address, port, credential_ref,
                            record_sessions, requestable, require_justification, tls_required)
-       VALUES ($1, $2, $3, $4::inet, $5::int, $6, $7, $8, $9, $10)
-       RETURNING id, name, description, environment, host(ip_address) AS ip_address, port, status,
+       VALUES ($1, $2, $3, $4, $5::inet, $6::int, $7, $8, $9, $10, $11)
+       RETURNING id, name, description, environment, protocol, host(ip_address) AS ip_address, port, status,
                  record_sessions, requestable, require_justification, tls_required, created_at`,
-      [p.name, p.description, p.environment, p.ipAddress, p.port, p.credentialRef,
+      [p.name, p.description, p.environment, p.protocol, p.ipAddress, p.port, p.credentialRef,
        p.recordSessions, p.requestable, p.requireJustification, p.tlsRequired],
     );
     return rows[0]; // nunca retorna credential_ref / senha
@@ -436,6 +438,7 @@ export class Db {
     p: {
       description?: string;
       environment?: string;
+      protocol?: string;
       ipAddress?: string;
       port?: number;
       credentialRef?: string;
@@ -450,22 +453,24 @@ export class Db {
       `UPDATE assets SET
           description          = COALESCE($2, description),
           environment          = COALESCE($3, environment),
-          ip_address           = COALESCE($4::inet, ip_address),
-          port                 = COALESCE($5::int, port),
-          credential_ref       = COALESCE($6, credential_ref),
-          status               = COALESCE($7::entity_status, status),
-          record_sessions      = COALESCE($8, record_sessions),
-          requestable          = COALESCE($9, requestable),
-          require_justification = COALESCE($10, require_justification),
-          tls_required          = COALESCE($11, tls_required),
+          protocol             = COALESCE($4, protocol),
+          ip_address           = COALESCE($5::inet, ip_address),
+          port                 = COALESCE($6::int, port),
+          credential_ref       = COALESCE($7, credential_ref),
+          status               = COALESCE($8::entity_status, status),
+          record_sessions      = COALESCE($9, record_sessions),
+          requestable          = COALESCE($10, requestable),
+          require_justification = COALESCE($11, require_justification),
+          tls_required          = COALESCE($12, tls_required),
           updated_at           = now()
         WHERE id = $1
-        RETURNING id, name, description, environment, host(ip_address) AS ip_address, port, status,
+        RETURNING id, name, description, environment, protocol, host(ip_address) AS ip_address, port, status,
                   record_sessions, requestable, require_justification, tls_required`,
       [
         id,
         p.description ?? null,
         p.environment ?? null,
+        p.protocol ?? null,
         p.ipAddress ?? null,
         p.port ?? null,
         p.credentialRef ?? null,
