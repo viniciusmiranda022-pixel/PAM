@@ -139,13 +139,46 @@ genérico. Antes da auditoria de cada função, ver [`function-audit.md`](functi
 | PR | Objetivo | Escopo | Status |
 |----|----------|--------|--------|
 | **PR-12** | Pivot documental | constituição, novos HR, ADR, auditoria função-por-função, VNC como 1º adapter | ✅ mergeado |
-| **PR-13** | Hardening & CI | IP de origem não-spoofável (nginx `$remote_addr`, `trustProxy` restrito), remover senhas do seed, CI mínimo (typecheck+test+scan de proxy-genérico/deps/segredos), versionar a suíte de integração, usuário DB runtime com privilégio mínimo, decisão de KDF (scrypt, ADR 0002) | 🟢 este PR |
-| **PR-14** | UI enterprise | portal estilo Fluent; esconder função incompleta; nenhum botão morto | ⬜ |
-| **PR-15** | Auth enterprise | consolidar OIDC; ADFS via OIDC/SAML; LDAPS interno se necessário (nunca LDAP direto exposto à internet) | ⬜ |
-| **PR-16** | Abstração de protocolo | `protocol` no modelo de asset + **adapter registry**; VNC isolado em `adapters/vnc/` como adapter oficial; gateway recusa protocolo sem adapter. Sem novos protocolos ainda | 🟢 este PR |
-| **PR-17+** | Novos adapters | um adapter por PR — **RDP primeiro, SSH depois** — cada um com threat model, contrato, terminação de handshake, gravação, auditoria e testes próprios | ⬜ |
+| **PR-13** | Hardening & CI | IP de origem não-spoofável, remover senhas do seed, CI mínimo, versionar a suíte de integração, usuário DB runtime com privilégio mínimo, KDF (scrypt, ADR 0002) | ✅ mergeado |
+| **PR-14** | UI enterprise | portal estilo Fluent; esconder função incompleta; nenhum botão morto | ✅ mergeado |
+| **PR-15** | Auth enterprise | consolidar OIDC (PKCE, rotação JWKS, grupo→role); ADFS via OIDC/SAML (ADR 0003); LDAPS → PR-15B | ✅ mergeado |
+| **PR-16** | Abstração de protocolo | `protocol` no modelo + **adapter registry** neutro; VNC isolado em `adapters/vnc/`; gateway recusa protocolo sem adapter (ADR 0004) | ✅ mergeado |
+| **PR-17** | Primeiro adapter novo — **RDP** | dividido em sub-PRs (abaixo), um adapter por PR, RDP antes de SSH | 🟡 em andamento (17A) |
+| **PR-18+** | Adapter SSH | depois do RDP | ⬜ |
+| **PR-15B** | LDAPS interno | backlog; não bloqueia o RDP | ⬜ |
 
-Critérios de aceite de um **novo adapter** (PR-17+):
+### Sub-roadmap do RDP (PR-17)
+
+RDP é grande demais para um PR monolítico; entra por incrementos revisáveis, com
+**dois gates empíricos não-circulares** que aceitam coisas diferentes: o **smoke P0**
+valida o worker isolado (PR-17B) e **aceita a engine**; o **gate P1** só roda depois
+que o produto RDP está completo (PRs 17C–17F) e **aceita o adapter como produto**;
+só então o **PR-17G** habilita o RDP em runtime.
+
+| Sub-PR | Objetivo | Status |
+|----|----------|--------|
+| **PR-17A** | Decisão de engine (ADR 0005 `Accepted — Conditional`, condicionada **ao P0**, com matriz preenchida), threat model ([`threat-models/rdp.md`](threat-models/rdp.md)), runbooks dos gates P0/P1. **Docs-only, zero código.** | 🟢 este PR |
+| **PR-17B** | **Spike isolado** do RDP Worker próprio sobre `libfreerdp` — worker/harness de laboratório. **Sem** gateway/backend/registry/UI, **sem** `SUPPORTED_PROTOCOLS`, **sem** `protocol=rdp`, **sem** endpoint de sessão nem conexão arbitrária exposta | ⬜ |
+| **Smoke P0** | Gate do **worker isolado** do PR-17B contra **Windows (NLA)** e **xrdp** ([`rdp-smoke-runbook.md`](rdp-smoke-runbook.md)) — **aceita a engine** (ADR 0005 → `Accepted`) e desbloqueia o início do PR-17C | ⛔ fora do sandbox |
+| **PR-17C** | Adapter RDP + integração ao broker/registry **em perfil de laboratório**: `SUPPORTED_PROTOCOLS` continua `["vnc"]`, sem UI/rota/asset RDP de produção; exercitado só por testes e perfil de laboratório (que recusa `PAM_ENV=production`) | ⛔ **bloqueado até o smoke P0 verde** |
+| **PR-17D** | Segurança/políticas: NLA/CredSSP, validação de certificado, canais virtuais (clipboard/drive/printer **off** por padrão), política por asset | ⬜ |
+| **PR-17E** | Cliente web e transporte próprios do PAM (sessão RDP no navegador) | ⬜ |
+| **PR-17F** | Gravação, auditoria completa, métricas, encerramento administrativo, resource limits, troubleshooting e operação | ⬜ |
+| **Gate P1** | Gate de **integração/segurança end-to-end** do produto completo ([`rdp-integration-p1-runbook.md`](rdp-integration-p1-runbook.md)) — roda **somente após os PRs 17C–17F**; **aceita o adapter como produto** | ⛔ fora do sandbox; **após o PR-17F** |
+| **PR-17G** | **Habilitação controlada** do RDP em runtime — **somente aqui** `SUPPORTED_PROTOCOLS = ["vnc", "rdp"]`, após o gate P1 verde | ⛔ **após o gate P1** |
+
+> **Gate não-circular (sequência final):** `PR-17A → PR-17B → smoke P0 → PR-17C →
+> PR-17D → PR-17E → PR-17F → gate P1 → PR-17G`. O **smoke P0 aceita a engine** (ADR
+> 0005 → `Accepted`) e desbloqueia o PR-17C; o **gate P1** só roda depois do PR-17F
+> (precisa do cliente web, das políticas, da auditoria completa, do encerramento
+> administrativo e da gravação que 17D/17E/17F entregam) e **aceita o adapter como
+> produto**. **Política de runtime única:** `SUPPORTED_PROTOCOLS` permanece `["vnc"]`
+> até o **PR-17G**; durante 17C–17F o RDP existe apenas em **perfil de laboratório
+> explicitamente separado**, que **recusa inicialização quando `PAM_ENV=production`**
+> (sem UI RDP pública, sem rota pública de sessão RDP, sem asset RDP na API de
+> produção). Só o **PR-17G** — após o P1 verde — muda para `["vnc", "rdp"]`.
+
+Critérios de aceite de um **novo adapter** (PR-17C+):
 
 ```text
 [ ] Termina o handshake do protocolo dos dois lados (nunca túnel byte-a-byte)

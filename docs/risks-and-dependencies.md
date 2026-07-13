@@ -42,10 +42,21 @@ Ordenados por severidade × probabilidade.
 - **Proxy TCP genérico / encaminhamento de porta arbitrária** — **permanece
   proibido** (HR-08/HR-09).
 
-**Reavaliado no pivot (não mais proibido a priori):** engines multiprotocolo como
-**Apache Guacamole/`guacd`** ou SDKs específicos de RDP/SSH deixam de violar o
-escopo — desde que usados **dentro de um adapter explícito** que preserve HR-01…
-HR-10 (o backend continua resolvendo destino/credencial; a credencial não vai ao
-browser; sem proxy genérico). A escolha de **engine própria vs. `guacd` vs. SDK**
-para cada novo protocolo fica **em aberto**, a ser decidida por adapter com PoC no
-PR-16/PR-17 — ver [`adr/0001-pivot-multiprotocolo.md`](adr/0001-pivot-multiprotocolo.md).
+**Decisão de produto sobre engine (RDP):** o **Apache Guacamole / `guacd`**, o
+protocolo Guacamole e o `guacamole-common-js` estão **rejeitados por decisão de
+produto** — o PAM terá engine, transporte de sessão e cliente web **próprios**. A
+engine do RDP é um **RDP Worker próprio do PAM** que encapsula a biblioteca de
+protocolo de baixo nível **`libfreerdp`** (FreeRDP fica dentro do worker; o
+navegador nunca a alcança). Direção oficial:
+
+```text
+Browser → cliente web próprio do PAM → Session Gateway → RDP Worker próprio → libfreerdp → asset RDP
+```
+
+Bibliotecas de protocolo (como `libfreerdp`) são permitidas **encapsuladas dentro
+do nosso worker/adapter**, preservando HR-01…HR-10 (backend resolve
+destino/credencial; credencial fora do browser; sem proxy genérico). Decisão e
+matriz em [`adr/0005-rdp-engine.md`](adr/0005-rdp-engine.md)
+(`Accepted — Conditional`, sujeita ao smoke P0 real). SSH será avaliado de forma
+análoga no seu PR. **Proxy TCP genérico e reuso de servidor/protocolo de outro
+produto (guacd) permanecem fora.**

@@ -5,6 +5,11 @@
 - **Decisores:** dono do produto
 - **Contexto de PR:** PR-12 (documental; nenhuma mudança de código)
 
+> **Nota de supersessão (RDP):** para RDP, esta decisão foi supersedida pelo
+> [`0005-rdp-engine.md`](0005-rdp-engine.md), que rejeita Guacamole/`guacd` e
+> seleciona condicionalmente um RDP Worker próprio sobre `libfreerdp`. As menções a
+> `guacd`/engine externa abaixo são **registro histórico** do estado em 2026-07-08.
+
 ## Contexto
 
 O produto foi construído e entregue (Fases 0–5.5) como **PAM VNC-Only**, com a

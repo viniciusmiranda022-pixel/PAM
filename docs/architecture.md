@@ -141,9 +141,12 @@ uso único é garantido por transação (`UPDATE ... WHERE token_used_at IS NULL
 Alternativa avaliada: gateway/adapters em **Go** (excelente para proxies TCP e para
 falar protocolos binários). Mantido em Node no início para um único toolchain; a
 separação em processo e por adapter permite reescrever um adapter específico em
-outra linguagem depois sem tocar no resto. A **engine de cada novo protocolo**
-(implementação própria vs. reuso de um engine externo como `guacd`) é decidida por
-adapter, com PoC — ver [`adr/0001-pivot-multiprotocolo.md`](adr/0001-pivot-multiprotocolo.md).
+outra linguagem depois sem tocar no resto. A **engine de cada novo protocolo** é
+decidida por adapter, com PoC — sempre com engine, transporte e cliente **próprios**.
+Para RDP, a decisão de produto **rejeita Apache Guacamole/`guacd`** e seleciona
+condicionalmente um **RDP Worker próprio do PAM sobre `libfreerdp`** (FreeRDP como
+biblioteca encapsulada no worker; o navegador nunca a alcança) — ver
+[`adr/0005-rdp-engine.md`](adr/0005-rdp-engine.md).
 
 ## 7. Regras de escopo (o que continua proibido)
 
