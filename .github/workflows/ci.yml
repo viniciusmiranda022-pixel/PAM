@@ -7,6 +7,11 @@ on:
 
 # Nota de governanca: o branch default do repositorio deve ser `main` (definido
 # manualmente em Settings > Branches). Este workflow roda em todo push/PR.
+#
+# Supply chain: menor privilegio por padrao; toda action e fixada por commit SHA
+# completo (referencia imutavel).
+permissions:
+  contents: read
 
 jobs:
   build-test:
@@ -32,9 +37,9 @@ jobs:
       PAM_APP_PASSWORD: apppw
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: "22"
 
@@ -100,3 +105,61 @@ jobs:
           COOKIE_SECRET: ci-dummy-cookie-secret-32bytes!!
           CREDENTIAL_MASTER_KEY: ci-dummy-master-key-base64==
         run: docker compose -f docker-compose.yml config -q
+
+  # ── RDP Worker (spike, LAB ONLY — PR-17B / ADR 0006) ────────────────────────
+  # Logic build + unit tests run offline; the native build (FreeRDP 3.28.0 pinned
+  # by committed commit SHA) runs via Docker on the runner. Job separado.
+  rdp-worker-build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # Barreira anti-integração acidental + scans de segredo (cobrem o worker).
+      - name: Scope guard (anti-integração)
+        run: bash scripts/ci/check-rdp-worker-scope.sh
+      - name: Scan de segredos (HR-06)
+        run: bash scripts/ci/scan-secrets.sh
+
+      # Valida que a tag oficial ainda aponta para o commit SHA COMMITADO do
+      # FreeRDP; falha se divergir (sem resolução dinâmica no build).
+      - name: Verificar pin do FreeRDP (commit SHA committado)
+        working-directory: rdp-worker
+        run: ./scripts/pin-freerdp.sh
+
+      - name: Toolchain C++ (cmake/ninja/g++)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake ninja-build g++
+
+      # Fase lógica (sem libfreerdp): compila com -Werror e roda os unit tests.
+      - name: Logic build + unit tests
+        working-directory: rdp-worker
+        run: |
+          ./scripts/build.sh
+          ctest --test-dir build --output-on-failure
+      - name: Selftest (logic)
+        working-directory: rdp-worker
+        run: ./scripts/run-selftest.sh
+
+      # Fase nativa: build da imagem (compila FreeRDP do commit fixado, roda
+      # testes + selftest dentro do container) e confirma a versão carregada.
+      - name: Native build (Docker, FreeRDP 3.28.0 pinado por commit SHA)
+        run: docker build -f rdp-worker/Dockerfile -t privion-rdp-worker-lab:ci rdp-worker
+      - name: Selftest nativo (confirma FreeRDP 3.28.0)
+        run: docker run --rm privion-rdp-worker-lab:ci --selftest
+
+      # SBOM COMPLETO da imagem runtime final. syft vem da AÇÃO OFICIAL fixada
+      # pelo commit SHA completo (não do install.sh da branch main mutável).
+      - name: Gerar SBOM (CycloneDX) — anchore/sbom-action fixada por commit
+        uses: anchore/sbom-action@df80a981bc6edbc4e220a492d3cbe9f5547a6e75 # v0.17.9
+        with:
+          image: privion-rdp-worker-lab:ci
+          format: cyclonedx-json
+          output-file: rdp-worker/sbom.cyclonedx.json
+          upload-artifact: false
+      # Sem fallback: se o SBOM não tiver FreeRDP/WinPR/OpenSSL/zlib, o job falha.
+      - name: Validar SBOM (componentes nativos presentes)
+        run: python3 rdp-worker/scripts/validate-sbom.py rdp-worker/sbom.cyclonedx.json
+      - name: Publicar SBOM
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: rdp-worker-sbom
+          path: rdp-worker/sbom.cyclonedx.json

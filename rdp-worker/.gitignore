@@ -1,0 +1,5 @@
+build/
+build-native/
+sbom*.json
+*.o
+*.a
