@@ -28,7 +28,7 @@ RUN ./build-native/privion-rdp-worker-lab --selftest
 # --- runtime -----------------------------------------------------------------
 FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90 AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      libssl3 zlib1g \
+      libssl3 zlib1g libicu74 liburiparser1 libcjson1 \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin privion \
  && mkdir -p /run/privion && chown privion:privion /run/privion && chmod 0700 /run/privion
