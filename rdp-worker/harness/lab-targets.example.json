@@ -1,0 +1,6 @@
+{
+  "targetAlias": "windows-nla-lab",
+  "address": "192.0.2.10",
+  "port": 3389,
+  "domain": "LAB"
+}
