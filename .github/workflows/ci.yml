@@ -142,7 +142,7 @@ jobs:
       # Fase nativa: build da imagem (compila FreeRDP do commit fixado, roda
       # testes + selftest dentro do container) e confirma a versão carregada.
       - name: Native build (Docker, FreeRDP 3.28.0 pinado por commit SHA)
-        run: docker build -f rdp-worker/Dockerfile -t privion-rdp-worker-lab:ci rdp-worker
+        run: docker build --platform=linux/amd64 -f rdp-worker/Dockerfile -t privion-rdp-worker-lab:ci rdp-worker
       - name: Selftest nativo (confirma FreeRDP 3.28.0)
         run: docker run --rm privion-rdp-worker-lab:ci --selftest
 

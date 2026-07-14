@@ -49,13 +49,28 @@ ExternalProject_Add(freerdp_ext
   CMAKE_ARGS
     -DCMAKE_INSTALL_PREFIX=${FREERDP_INSTALL}
     -DCMAKE_BUILD_TYPE=Release
+    -DBUILD_SHARED_LIBS=ON
+    -DBUILD_TESTING=OFF
     -DWITH_SERVER=OFF
     -DWITH_SAMPLE=OFF
+    -DWITH_MANPAGES=OFF
+    # Headless connect-only worker: disable GUI/audio/codec/redirection features
+    # whose system libs we intentionally do not ship (keeps the image minimal and
+    # the build reproducible). The core client + OpenSSL + zlib remain.
     -DWITH_CLIENT_SDL=OFF
     -DWITH_X11=OFF
     -DWITH_WAYLAND=OFF
-    -DBUILD_TESTING=OFF
-    -DBUILD_SHARED_LIBS=ON
+    -DWITH_FFMPEG=OFF
+    -DWITH_SWSCALE=OFF
+    -DWITH_CAIRO=OFF
+    -DWITH_PULSE=OFF
+    -DWITH_ALSA=OFF
+    -DWITH_OSS=OFF
+    -DWITH_PCSC=OFF
+    -DWITH_CUPS=OFF
+    -DWITH_FUSE=OFF
+    -DWITH_KRB5=OFF
+    -DWITH_WEBVIEW=OFF
   BUILD_ALWAYS OFF
 )
 
