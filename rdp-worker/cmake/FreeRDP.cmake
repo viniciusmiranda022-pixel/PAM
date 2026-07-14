@@ -83,7 +83,10 @@ set(FREERDP_LIB_DIR "${FREERDP_INSTALL}/lib")
 
 function(privion_link_freerdp target)
   add_dependencies(${target} freerdp_ext)
-  target_include_directories(${target} PRIVATE ${FREERDP_INCLUDE_DIRS})
+  # SYSTEM: FreeRDP/WinPR headers use anonymous structs and value-narrowing
+  # macros that trip our -Wpedantic/-Wconversion/-Werror. Treating them as system
+  # headers silences third-party warnings while our own code stays strict.
+  target_include_directories(${target} SYSTEM PRIVATE ${FREERDP_INCLUDE_DIRS})
   target_link_directories(${target} PUBLIC "${FREERDP_LIB_DIR}")
   target_link_libraries(${target} PUBLIC freerdp-client3 freerdp3 winpr3)
   target_compile_definitions(${target} PRIVATE PRIVION_WITH_FREERDP=1)
