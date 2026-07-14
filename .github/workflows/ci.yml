@@ -146,6 +146,20 @@ jobs:
       - name: Selftest nativo (confirma FreeRDP 3.28.0)
         run: docker run --rm privion-rdp-worker-lab:ci --selftest
 
+      # Comprova que as libs nativas realmente existem na imagem final e que o
+      # binário carrega sem dependência ausente — o SBOM só reflete o que existe.
+      - name: Verificar bibliotecas nativas na imagem
+        run: |
+          docker run --rm \
+            --entrypoint /bin/sh \
+            privion-rdp-worker-lab:ci \
+            -ec '
+              ldd /usr/local/bin/privion-rdp-worker-lab
+              ! ldd /usr/local/bin/privion-rdp-worker-lab | grep -q "not found"
+              find /usr/local/lib -name "libfreerdp*.so*" | grep -q .
+              find /usr/local/lib -name "libwinpr*.so*" | grep -q .
+            '
+
       # SBOM COMPLETO da imagem runtime final. syft vem da AÇÃO OFICIAL fixada
       # pelo commit SHA completo (não do install.sh da branch main mutável).
       - name: Gerar SBOM (CycloneDX) — anchore/sbom-action fixada por commit

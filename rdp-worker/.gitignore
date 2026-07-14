@@ -3,3 +3,5 @@ build-native/
 sbom*.json
 *.o
 *.a
+__pycache__/
+*.pyc
