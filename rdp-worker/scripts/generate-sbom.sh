@@ -17,5 +17,6 @@ if ! command -v syft >/dev/null 2>&1; then
 fi
 
 syft "$image" -o cyclonedx-json="$out"
+python3 "$here/scripts/augment-sbom.py" "$out"   # add source-built FreeRDP/WinPR
 python3 "$here/scripts/validate-sbom.py" "$out"
 echo "generate-sbom: wrote $out"

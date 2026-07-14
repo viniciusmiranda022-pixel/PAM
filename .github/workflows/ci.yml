@@ -155,6 +155,10 @@ jobs:
           format: cyclonedx-json
           output-file: rdp-worker/sbom.cyclonedx.json
           upload-artifact: false
+      # FreeRDP/WinPR são compilados do source (não vêm de gerenciador de pacote),
+      # então syft não os cataloga; adiciona-os com proveniência do pin.
+      - name: Completar SBOM com FreeRDP/WinPR (build from source)
+        run: python3 rdp-worker/scripts/augment-sbom.py rdp-worker/sbom.cyclonedx.json
       # Sem fallback: se o SBOM não tiver FreeRDP/WinPR/OpenSSL/zlib, o job falha.
       - name: Validar SBOM (componentes nativos presentes)
         run: python3 rdp-worker/scripts/validate-sbom.py rdp-worker/sbom.cyclonedx.json
