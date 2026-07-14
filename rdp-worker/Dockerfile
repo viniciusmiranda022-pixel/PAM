@@ -10,8 +10,8 @@
 # --- builder -----------------------------------------------------------------
 FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90 AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential cmake ninja-build ca-certificates \
-      pkg-config libssl-dev zlib1g-dev \
+      build-essential cmake ninja-build ca-certificates pkg-config \
+      libssl-dev zlib1g-dev libicu-dev liburiparser-dev libcjson-dev \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /w
