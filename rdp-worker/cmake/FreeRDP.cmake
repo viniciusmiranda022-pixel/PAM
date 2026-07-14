@@ -71,6 +71,8 @@ ExternalProject_Add(freerdp_ext
     -DWITH_FUSE=OFF
     -DWITH_KRB5=OFF
     -DWITH_WEBVIEW=OFF
+    # USB redirection channel needs libusb; not needed for a connect-only worker.
+    -DCHANNEL_URBDRC=OFF
   BUILD_ALWAYS OFF
 )
 
