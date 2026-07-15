@@ -1,0 +1,38 @@
+# Dockerfile.runner — the P0 lab RUNNER image: the native worker + harness built
+# from the pinned FreeRDP 3.28.0, plus run-p0.sh and the secret-scan helper, so
+# the driver can execute INSIDE a container on the lab network (reaching the
+# --internal xrdp target). Build context = repo root. Built by 41-worker-image.sh.
+#
+# This is a LAB-ONLY test harness image; it is NOT a product artifact and is
+# never referenced by the product runtime. It reuses the worker's own pinned,
+# hash-verified FreeRDP build (rdp-worker/Dockerfile builder stage).
+
+# --- reuse the worker's builder (compiles worker + harness + pinned FreeRDP) ---
+FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90 AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential cmake ninja-build ca-certificates pkg-config \
+      libssl-dev zlib1g-dev libicu-dev liburiparser-dev libcjson-dev \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /w
+COPY rdp-worker /w
+RUN cmake -S . -B build-native -G Ninja \
+      -DPRIVION_LAB_ONLY=ON -DPRIVION_WITH_FREERDP=ON -DPRIVION_BUILD_TESTS=ON \
+ && cmake --build build-native \
+ && ./build-native/privion-rdp-worker-lab --selftest
+
+# --- runtime: worker + harness + driver + helper + a shell ---
+FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90 AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash python3 coreutils libssl3 zlib1g libicu74 liburiparser1 libcjson1 ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /w/build-native/privion-rdp-worker-lab /usr/local/bin/privion-rdp-worker-lab
+COPY --from=builder /w/build-native/harness/privion-rdp-lab-harness /usr/local/bin/privion-rdp-lab-harness
+COPY --from=builder /w/build-native/freerdp/install/lib/ /usr/local/lib/
+RUN ldconfig
+# The driver + helper (read at runtime, not baked into $PATH).
+COPY rdp-worker/scripts/run-p0.sh /opt/rdp-worker/scripts/run-p0.sh
+COPY rdp-worker/scripts/p0-evidence-secret-scan.py /opt/rdp-worker/scripts/p0-evidence-secret-scan.py
+# run-p0.sh resolves the worker via PRIVION_WORKER (set by the caller); the
+# helper path is resolved relative to the script dir, so keep them together.
+WORKDIR /lab
+ENTRYPOINT []
