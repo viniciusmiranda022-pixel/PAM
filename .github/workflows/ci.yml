@@ -120,6 +120,20 @@ jobs:
       - name: Scan de segredos (HR-06)
         run: bash scripts/ci/scan-secrets.sh
 
+      # Driver do smoke P0: sintaxe, ShellCheck e a suíte offline (stubs de worker
+      # e harness sobre UDS real). Não sobe alvo RDP; só valida o script/execução.
+      - name: P0 driver — bash -n, ShellCheck, offline tests
+        working-directory: rdp-worker
+        run: |
+          bash -n scripts/run-p0.sh
+          bash -n tests/run-p0-script-test.sh
+          python3 -c "import ast; ast.parse(open('scripts/p0-evidence-secret-scan.py').read())"
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
+          fi
+          shellcheck -x scripts/run-p0.sh tests/run-p0-script-test.sh
+          bash tests/run-p0-script-test.sh
+
       # Valida que a tag oficial ainda aponta para o commit SHA COMMITADO do
       # FreeRDP; falha se divergir (sem resolução dinâmica no build).
       - name: Verificar pin do FreeRDP (commit SHA committado)

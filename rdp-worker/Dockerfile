@@ -27,8 +27,15 @@ RUN ./build-native/privion-rdp-worker-lab --selftest
 
 # --- runtime -----------------------------------------------------------------
 FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90 AS runtime
+# ca-certificates gives OpenSSL a system trust store so FreeRDP can verify a
+# server certificate that chains to an OS-trusted (or lab) CA. This is the
+# PROPOSED trust mechanism for the P0 certificate scenarios — prepared here, but
+# only proven effective by the real scenarios 4/5 (TOFU=0 + controlled CA +
+# chained cert accepted + unknown cert refused). A lab-internal CA is supplied
+# at run time via a read-only bundle + SSL_CERT_FILE (see the runbook); the TOFU
+# accept-once escape hatch is NEVER accepted as proof of trust.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      libssl3 zlib1g libicu74 liburiparser1 libcjson1 \
+      libssl3 zlib1g libicu74 liburiparser1 libcjson1 ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin privion \
  && mkdir -p /run/privion && chown privion:privion /run/privion && chmod 0700 /run/privion
