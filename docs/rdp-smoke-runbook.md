@@ -70,6 +70,232 @@ Tudo aqui é comprovável **só com o worker + FreeRDP + alvo real**:
 - [ ] **Revisão de CVEs** da versão fixada da `libfreerdp` — nenhum CVE aplicável
       não mitigado; SBOM do worker gerado. *(eliminatório P0)*
 
+## Driver de execução (`run-p0.sh`)
+
+O driver [`rdp-worker/scripts/run-p0.sh`](../rdp-worker/scripts/run-p0.sh)
+executa **um** job por cenário e grava uma evidência **sem segredos**. Ele
+**não aprova o P0**: grava a evidência e calcula um veredito por cenário; a
+aceitação é humana (operador + revisor no
+[`rdp-p0-evidence-template.md`](rdp-p0-evidence-template.md)).
+
+**Segredo fora do shell.** A credencial nunca entra em variável de shell, `argv`,
+env ou `set -x`. Só o helper
+[`p0-evidence-secret-scan.py`](../rdp-worker/scripts/p0-evidence-secret-scan.py)
+abre o arquivo `0400` (`O_NOFOLLOW` + `fstat`: arquivo regular, dono == euid, modo
+exatamente `0400`, teto de tamanho), lê os bytes internamente e devolve só um
+token (`OK` / `CLEAN` / `LEAK_PRESENT`) — nunca a senha, nem em erro. O harness lê
+o mesmo arquivo `0400` diretamente para entregá-lo ao worker.
+
+**Sentinela do pacote completo.** O scan de vazamento roda **por último**, depois
+de logs, `facts.kv`, `resources.txt`, `manifest.json`, `summary.json` e
+`summary.txt` estarem finalizados; ele varre o diretório inteiro e então grava
+**apenas** `secret-sentinel.json` (`CLEAN`/`LEAK_PRESENT`). Nenhum outro arquivo
+é alterado depois do scan.
+
+**Gate de selftest.** Antes de iniciar qualquer sessão, o driver executa
+`worker --selftest` e **recusa (rc 2)** se o selftest falhar, se o worker não for
+um build nativo, ou se a versão do FreeRDP não for **exatamente 3.28.0**.
+
+**`PRIVION_EXPECTED_RESULT`** (explícito por cenário; o nome em
+`PRIVION_SCENARIO` é só rótulo e nunca influencia o veredito): `connect`,
+`auth_reject`, `cert_trusted`, `cert_reject`, `egress_denied`, `watchdog`,
+`asset_disconnect`, `network_unreachable`, `terminate`. Coerência exigida:
+`terminate` **requer** `PRIVION_SESSION_SECONDS`; `watchdog` e `asset_disconnect`
+exigem-no **ausente** (senão a causa do encerramento fica ambígua por construção).
+
+**Códigos de saída do driver (só `PASS` retorna zero):** `0` veredito `PASS` e
+sentinela `CLEAN`; `2` pré-condição (env, binário, gate de selftest, credencial
+ou alvo inválido — nada foi iniciado); `10` operacional (UDS não surgiu, worker
+morreu antes do socket, watchdog do driver); `20` veredito `FAIL`; `25` veredito
+`INCONCLUSIVE` (consistente, mas exige confirmação do operador — **nunca**
+sucesso); `30` **vazamento** (credencial encontrada no pacote final — parada
+dura, sobrepõe qualquer veredito).
+
+### Pré-requisitos de execução (diretório exato)
+
+Execute **a partir de `rdp-worker/`** (o driver resolve os binários por caminho
+relativo e grava as evidências em `./p0-evidence/`):
+
+```bash
+cd rdp-worker
+./scripts/build.sh --native      # produz build-native/privion-rdp-worker-lab
+                                 # e build-native/harness/privion-rdp-lab-harness
+./build-native/privion-rdp-worker-lab --selftest   # confirma FreeRDP 3.28.0
+```
+
+Arquivo de alvo **não secreto** (um por alvo), ex. `lab-targets-win.json`:
+
+```json
+{ "address": "10.0.0.21", "port": 3389, "domain": "LAB" }
+```
+
+Credencial de laboratório em arquivo `0400` de sua posse (rotacione após o P0):
+
+```bash
+umask 077
+printf '%s' 'senha-de-laboratorio' > ./cred.0400
+chmod 0400 ./cred.0400            # dono == você; sem newline final é aceito
+```
+
+### Trust store do certificado (cenários 4 e 5) — mecanismo PROPOSTO
+
+O worker delega a verificação do certificado ao **trust store do OpenSSL** do
+processo; o callback do worker só é chamado quando a verificação automática
+**falhou**, e então **recusa** (a menos que o *accept-once* de laboratório
+`PRIVION_LAB_TOFU_CERT=1` esteja ligado — que **invalida** qualquer veredito de
+`cert_trusted`/`cert_reject`).
+
+> **Status: proposto e configurado, ainda não comprovado.** A configuração abaixo
+> é a preparação; a **efetividade** (se a combinação FreeRDP/OpenSSL realmente
+> consome o caminho configurado, inclusive `SSL_CERT_FILE`) **só é comprovada
+> pelos cenários reais 4 e 5**: `TOFU=0` + CA controlada + certificado encadeado
+> **aceito** + certificado desconhecido **recusado**. Não afirmar homologação
+> antes disso.
+
+- **Build nativo no host:** usa `/etc/ssl/certs` (pacote `ca-certificates` do
+  host). Para uma **CA interna de laboratório**, aponte um bundle **read-only**:
+  `export SSL_CERT_FILE=/etc/pki/lab-ca.pem` (arquivo somente leitura).
+- **Execução na imagem do worker:** a imagem runtime inclui `ca-certificates`
+  (ver [`rdp-worker/Dockerfile`](../rdp-worker/Dockerfile)). Para uma CA interna,
+  monte o bundle **read-only** (`-v /etc/pki/lab-ca.pem:/etc/pki/lab-ca.pem:ro`)
+  e defina `SSL_CERT_FILE=/etc/pki/lab-ca.pem` no ambiente do worker.
+
+Rode os cenários 4 e 5 com `PRIVION_LAB_TOFU_CERT=0`. Anexe a cadeia / impressão
+digital observada à evidência; **não** presuma confiança sem a cadeia.
+
+### Execução por cenário
+
+Todos os comandos abaixo assumem `cd rdp-worker` e as variáveis comuns:
+
+```bash
+export PRIVION_TARGET_FILE=./lab-targets-win.json   # ou ./lab-targets-xrdp.json
+export PRIVION_USERNAME='LAB\labuser'
+export PRIVION_CRED_FILE=./cred.0400
+```
+
+**1. Windows com NLA (eliminatório):**
+
+```bash
+PRIVION_SCENARIO=windows-nla PRIVION_EXPECTED_RESULT=connect \
+PRIVION_SESSION_SECONDS=10 PRIVION_MAX_SECONDS=30 \
+./scripts/run-p0.sh
+```
+
+**2. xrdp (eliminatório):** igual ao (1), com o alvo xrdp:
+
+```bash
+PRIVION_TARGET_FILE=./lab-targets-xrdp.json \
+PRIVION_SCENARIO=xrdp PRIVION_EXPECTED_RESULT=connect \
+PRIVION_SESSION_SECONDS=10 PRIVION_MAX_SECONDS=30 \
+./scripts/run-p0.sh
+```
+
+**3. Credencial inválida (eliminatório):** use um `cred.0400` com senha errada:
+
+```bash
+PRIVION_CRED_FILE=./cred-wrong.0400 \
+PRIVION_SCENARIO=cred-invalid PRIVION_EXPECTED_RESULT=auth_reject \
+./scripts/run-p0.sh
+```
+
+**4. Certificado confiável (eliminatório):** alvo com cert que encadeia no trust
+store (ver acima), `TOFU=0` (com `TOFU=1` o driver **reprova** o cenário):
+
+```bash
+PRIVION_LAB_TOFU_CERT=0 \
+PRIVION_SCENARIO=cert-trusted PRIVION_EXPECTED_RESULT=cert_trusted \
+PRIVION_SESSION_SECONDS=10 \
+./scripts/run-p0.sh
+```
+
+**5. Certificado não confiável (eliminatório):** alvo com cert desconhecido/auto-
+assinado, `TOFU=0` (o worker deve recusar):
+
+```bash
+PRIVION_LAB_TOFU_CERT=0 \
+PRIVION_SCENARIO=cert-untrusted PRIVION_EXPECTED_RESULT=cert_reject \
+./scripts/run-p0.sh
+```
+
+**6. Host na allowlist (eliminatório):** allowlist derivada do alvo (padrão):
+
+```bash
+PRIVION_SCENARIO=host-allowed PRIVION_EXPECTED_RESULT=connect \
+PRIVION_SESSION_SECONDS=10 \
+./scripts/run-p0.sh
+```
+
+**7. Host fora da allowlist (eliminatório):** allowlist aponta para outro host:
+
+```bash
+PRIVION_ALLOW_TARGET=192.0.2.99:3389 \
+PRIVION_SCENARIO=host-denied PRIVION_EXPECTED_RESULT=egress_denied \
+./scripts/run-p0.sh
+```
+
+**8. Porta fora da allowlist (eliminatório):** allowlist com a porta errada:
+
+```bash
+PRIVION_ALLOW_TARGET=10.0.0.21:3390 \
+PRIVION_SCENARIO=port-denied PRIVION_EXPECTED_RESULT=egress_denied \
+./scripts/run-p0.sh
+```
+
+**9. Encerramento por TERMINATE (eliminatório):** `PRIVION_SESSION_SECONDS` é
+**obrigatório** aqui (o harness envia o TERMINATE; sem ele o driver recusa rc 2):
+
+```bash
+PRIVION_SCENARIO=terminate PRIVION_EXPECTED_RESULT=terminate \
+PRIVION_SESSION_SECONDS=8 PRIVION_MAX_SECONDS=60 \
+./scripts/run-p0.sh
+```
+
+**10. Watchdog (eliminatório):** `PRIVION_SESSION_SECONDS` deve estar **ausente**
+(o driver recusa rc 2 se estiver definido — TERMINATE tornaria a causa ambígua);
+watchdog curto:
+
+```bash
+unset PRIVION_SESSION_SECONDS
+PRIVION_SCENARIO=watchdog PRIVION_EXPECTED_RESULT=watchdog \
+PRIVION_MAX_SECONDS=8 \
+./scripts/run-p0.sh
+```
+
+**11. Desconexão pelo asset (eliminatório):** `PRIVION_SESSION_SECONDS` deve
+estar **ausente** (o driver recusa rc 2 se estiver definido); derrube a sessão
+**no lado do alvo** durante a janela:
+
+```bash
+unset PRIVION_SESSION_SECONDS
+PRIVION_SCENARIO=asset-disconnect PRIVION_EXPECTED_RESULT=asset_disconnect \
+PRIVION_MAX_SECONDS=60 \
+./scripts/run-p0.sh
+```
+
+**12. Rede indisponível (diagnóstico — falha fechada):** alvo na allowlist mas
+inalcançável; o veredito exige **ausência de `connected`** (falha fechada) e sai
+`INCONCLUSIVE` (rc 25) para o operador confirmar a causa de rede no
+`worker-stderr.txt`; se conectar, é `FAIL` (rc 20):
+
+```bash
+PRIVION_SCENARIO=net-unavailable PRIVION_EXPECTED_RESULT=network_unreachable \
+PRIVION_SOCKET_TIMEOUT=15 \
+./scripts/run-p0.sh
+```
+
+**13. SIGTERM / SIGINT (diagnóstico):** em outro terminal, envie o sinal ao
+processo `run-p0.sh` durante a sessão; o driver derruba worker+harness sem deixar
+órfãos e remove o socket/`tmpdir` (sai `143`/`130`).
+
+**14. Repetição de N sessões (diagnóstico — baseline):** rode o cenário (1) em
+laço `for i in $(seq 1 N)` e agregue `duration_ms_to_connected` (de cada
+`summary.json`) e `cpu_user_seconds` / `cpu_system_seconds` /
+`worker_peak_rss_kb` / `duration_monotonic_ms` (de cada `resources.txt`).
+
+**15. Ausência de segredo (eliminatório):** confirmado automaticamente em **cada**
+execução — o `secret-sentinel.json` (gravado por último, após o pacote completo)
+deve ser `CLEAN` em todas; um `LEAK_PRESENT` sai `rc=30` (parada dura).
+
 ## O que o P0 **não** cobre (permanece UNVERIFIED até o P1)
 
 Um worker isolado **não** tem navegador, broker nem gateway do produto no fluxo, então
@@ -89,9 +315,10 @@ e são responsabilidade do **gate P1**
 
 ## Como registrar o resultado
 
-Converter os `UNVERIFIED` de **escopo P0** da **matriz de decisão** da ADR 0005 em
-PASS/FAIL e atualizar as notas empíricas (NLA/CredSSP, desempenho) com evidência;
-anexar:
+Preencha uma cópia de [`rdp-p0-evidence-template.md`](rdp-p0-evidence-template.md)
+(campos começam `PENDENTE`; operador + revisor assinam). Converter os `UNVERIFIED`
+de **escopo P0** da **matriz de decisão** da ADR 0005 em PASS/FAIL e atualizar as
+notas empíricas (NLA/CredSSP, desempenho) com evidência; anexar:
 - versão/digest do worker + versão da `libfreerdp` + SBOM;
 - logs de cada item (sucesso/recusa) do **worker**;
 - números de CPU/RAM/latência;

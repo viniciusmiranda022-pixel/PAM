@@ -72,10 +72,26 @@ Base images are pinned by digest and platform (`--platform=linux/amd64`) in the
 
 ## Smoke P0 (real targets, outside CI)
 
-`scripts/run-p0.sh` drives one job against a real Windows/xrdp target for
-[`docs/rdp-smoke-runbook.md`](../docs/rdp-smoke-runbook.md). It requires a native
-build, a non-secret target file, and a `0400` credential file — and it never
-claims a pass on its own.
+`scripts/run-p0.sh` drives **one** job per scenario against a real Windows/xrdp
+target and records secret-free evidence for
+[`docs/rdp-smoke-runbook.md`](../docs/rdp-smoke-runbook.md) — full per-scenario
+commands, the certificate trust store, and the exit codes live there; the
+sign-off sheet is [`docs/rdp-p0-evidence-template.md`](../docs/rdp-p0-evidence-template.md).
+It requires a native build, a non-secret target file, and a `0400` credential
+file, and it **never approves the P0 on its own** (per-scenario verdict only;
+acceptance is the operator + reviewer's, and needs ALL eliminatory scenarios
+`PASS`).
+
+The credential never enters the shell: `scripts/p0-evidence-secret-scan.py`
+opens the `0400` file with `O_NOFOLLOW` + `fstat` (regular file, owner == euid,
+mode `0400`, size cap), reads it internally, and returns only a token
+(`OK` / `CLEAN` / `LEAK_PRESENT`). The leak scan runs LAST, over the complete
+evidence package, and then writes only `secret-sentinel.json`. The driver
+requires a passing `--selftest` confirming a native FreeRDP 3.28.0 worker before
+any session, and only `PASS` exits zero (0 PASS · 2 precondition ·
+10 operational · 20 FAIL · 25 INCONCLUSIVE · 30 secret leak).
+`tests/run-p0-script-test.sh` exercises the driver offline (Python worker +
+harness stubs over a real UDS) and runs in CI alongside `bash -n` and ShellCheck.
 
 ## Scope guard
 
