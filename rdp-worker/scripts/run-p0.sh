@@ -98,7 +98,7 @@ wpid=''
 hpid=''
 _cleaned=0
 
-# shellcheck disable=SC2329  # invoked indirectly via the traps below
+# shellcheck disable=SC2329,SC2317  # invoked indirectly via the traps below
 cleanup() {
   [ "$_cleaned" = 1 ] && return 0
   _cleaned=1
@@ -118,8 +118,8 @@ cleanup() {
     kill -KILL "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
   done
-  [ -n "$sock" ] && rm -f "$sock" 2>/dev/null || true
-  [ -n "$tmpdir" ] && rm -rf "$tmpdir" 2>/dev/null || true
+  if [ -n "$sock" ]; then rm -f "$sock" 2>/dev/null || true; fi
+  if [ -n "$tmpdir" ]; then rm -rf "$tmpdir" 2>/dev/null || true; fi
 }
 trap 'cleanup' EXIT
 trap 'cleanup; exit 130' INT
@@ -207,7 +207,9 @@ case "$allow_target" in
 esac
 allow_port="${allow_target##*:}"
 allow_host="${allow_target%:*}"
-[ -n "$allow_host" ] && [ "$allow_host" != "$allow_target" ] || die 2 "allow target must be addr:port: $allow_target"
+if [ -z "$allow_host" ] || [ "$allow_host" = "$allow_target" ]; then
+  die 2 "allow target must be addr:port: $allow_target"
+fi
 require_pos_int "allow target port" "$allow_port" 65535
 
 # ── evidence directory (mktemp -d, never -u; 0700) ──────────────────────────

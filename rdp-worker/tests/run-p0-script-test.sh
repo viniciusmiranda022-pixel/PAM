@@ -29,6 +29,7 @@ export STUB_TAG
 PASS=0
 FAIL=0
 
+# shellcheck disable=SC2329,SC2317  # invoked indirectly via the trap below
 cleanup_all() {
   # Kill any lingering stub belonging to this test run, then remove WORK.
   local pid
