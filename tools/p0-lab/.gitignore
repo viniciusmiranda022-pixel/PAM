@@ -1,0 +1,12 @@
+# The lab automation must never commit secrets, certs, or evidence.
+p0-lab.env
+ca/
+artifacts/
+secrets/
+*.key
+*.crt
+*.csr
+*.srl
+*.pem
+cred.*
+*.0400
